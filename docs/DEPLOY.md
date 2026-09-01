@@ -40,7 +40,30 @@ uvicorn 进程。
 | `LISTING_UPSTREAM_URL` | | — | 可选网关层，设置后在 Token Plan 之前尝试。 |
 | `LISTING_LLM_API_KEY` / `LISTING_LLM_BASE_URL` / `LISTING_LLM_MODEL` | | — | 旧的通用 OpenAI 兼容覆盖项，向后兼容保留；仅当对应 `TOKEN_PLAN_*` 未设置时生效。 |
 
-图片 / 视频 Provider（`LISTING_IMAGE_*` / `LISTING_VIDEO_*`）**未纳入本次 Token Plan 接入**，保持原样。
+### 图片 / 视频生成（两套协议并存）
+
+图片走 `api/images.py`，视频走 `api/media.py`。两条链路都同时支持**旧供应商**（OpenAI 兼容
+`/images/generations`、PoloAPI 风格 `/videos`）和 **Token Plan 专用协议**，互不影响：
+
+| 变量 | 必填 | 默认 | 说明 |
+|---|---|---|---|
+| `LISTING_IMAGE_PROVIDER` / `LISTING_VIDEO_PROVIDER` | | 自动 | 显式选 `token_plan` 或 `legacy`。留空时：对应 `*_BASE_URL` 命中 `token-plan.` 域名则自动判定为 `token_plan`，否则 `legacy`。 |
+| `LISTING_IMAGE_API_KEY` / `LISTING_VIDEO_API_KEY` | | — | 媒体专用 Key。**未设置时回退到 `TOKEN_PLAN_API_KEY`**（生产由 systemd 注入的同一把专属 Key）。 |
+| `LISTING_IMAGE_MODEL` | | `gpt-image-2-c` / `qwen-image-2.0` | 留空时按 provider 取默认：legacy 用 `gpt-image-2-c`，token_plan 用 `qwen-image-2.0`。 |
+| `LISTING_VIDEO_MODEL` | | `sora-2` / `happyhorse-1.1-t2v` | 同上，token_plan 默认 `happyhorse-1.1-t2v`。 |
+| `TOKEN_PLAN_MEDIA_BASE_URL` | | `https://token-plan.cn-beijing.maas.aliyuncs.com` | Token Plan 媒体协议的 origin 覆盖（主要给测试用）。 |
+| `LISTING_VIDEO_POLL_INTERVAL_S` | | `15` | Token Plan 视频为异步任务，提交后按此间隔轮询 `GET /api/v1/tasks/{task_id}`。 |
+| `LISTING_VIDEO_POLL_TIMEOUT_S` | | `600` | 轮询整体超时（秒）；超时返回 504。测试时调小。 |
+| `LISTING_VIDEO_RESOLUTION` | | 由宽高比推导 | 固定输出分辨率（如 `720P` / `1080P`）。 |
+
+Token Plan 专用端点（专属 host，不要用通用 `dashscope.aliyuncs.com`）：
+
+- 图片：`POST /api/v1/services/aigc/multimodal-generation/generation`，从
+  `output.choices[*].message.content[*].image` 取 URL；前端 `1024x1024` 尺寸会规范化为 `1024*1024`。
+- 视频：`POST /api/v1/services/aigc/video-generation/video-synthesis`（请求头带
+  `X-DashScope-Async: enable`），取 `output.task_id`；轮询 `GET /api/v1/tasks/{task_id}`，
+  `output.task_status` 为 `SUCCEEDED` 时取 `output.video_url`，`FAILED` 时返回明确错误。
+  现有 `seconds` / `size` 输入映射到 `duration` / `resolution` / `ratio`。
 
 ### 选择默认模型的理由
 

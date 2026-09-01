@@ -1,8 +1,10 @@
 """Token Plan provider — designated competition model access.
 
-Only the documented OpenAI-compatible **chat-completions** API is integrated
-here. Image and video providers are intentionally left untouched: their Token
-Plan protocols have not been verified yet.
+This module owns the OpenAI-compatible **chat-completions** client plus the
+shared helpers that let ``images.py`` / ``media.py`` choose between the legacy
+OpenAI-compatible providers and the Token Plan native image / video protocols
+(``select_media_provider`` / ``token_plan_media_base_url``). The media request
+and response handling itself lives in those two modules.
 
 Security / logging rules enforced by this module:
 
@@ -23,6 +25,7 @@ import logging
 import os
 import uuid
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -32,6 +35,11 @@ logger = logging.getLogger("listing.token_plan")
 # URL; requests to the general ``dashscope.aliyuncs.com`` host do not consume
 # Token Plan quota.
 DEFAULT_BASE_URL = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+# Dedicated Token Plan MaaS host for the native image / video (DashScope-style)
+# protocols. The chat integration above uses ``/compatible-mode/v1``; media uses
+# the native ``/api/v1/services/aigc/...`` paths on this same host.
+TOKEN_PLAN_MEDIA_HOST = "token-plan.cn-beijing.maas.aliyuncs.com"
+TOKEN_PLAN_MEDIA_BASE_URL = f"https://{TOKEN_PLAN_MEDIA_HOST}"
 DEFAULT_TEXT_MODEL = "qwen3.7-plus"
 DEFAULT_AGENT_MODEL = "qwen3.7-plus"
 DEFAULT_TIMEOUT_S = 60.0
@@ -129,6 +137,68 @@ def agent_model() -> str:
 
 def is_configured() -> bool:
     return bool(api_key())
+
+
+# ---------------------------------------------------------------------------
+# Media (image / video) protocol selection. Shared by ``images.py`` and
+# ``media.py`` so both the OpenAI-compatible "legacy" providers and the Token
+# Plan native protocol stay reachable from the same deployment.
+# ---------------------------------------------------------------------------
+
+_TOKEN_PLAN_PROVIDER_ALIASES = {"token_plan", "tokenplan", "token-plan", "tp"}
+_LEGACY_PROVIDER_ALIASES = {"legacy", "openai", "polo", "poloapi", "old"}
+
+
+def is_token_plan_host(url: str) -> bool:
+    """True when *url* targets the dedicated Token Plan MaaS host."""
+    return "token-plan." in (url or "").lower()
+
+
+def _origin(url: str) -> str:
+    """Return ``scheme://host`` for *url*, dropping any path such as
+    ``/compatible-mode/v1``. Falls back to the trimmed input when unparsable."""
+    parts = urlsplit((url or "").strip())
+    if parts.scheme and parts.netloc:
+        return f"{parts.scheme}://{parts.netloc}"
+    return (url or "").strip().rstrip("/")
+
+
+def select_media_provider(explicit: str, base_urls: "list[str] | tuple[str, ...]") -> str:
+    """Pick ``"token_plan"`` or ``"legacy"`` for an image / video call.
+
+    Resolution order, deliberately not a fragile single check:
+
+    1. An explicit ``LISTING_IMAGE_PROVIDER`` / ``LISTING_VIDEO_PROVIDER`` value
+       (``token_plan`` or ``legacy``; case and punctuation insensitive) wins.
+    2. Otherwise, if any configured base URL is on the Token Plan host, use the
+       Token Plan native protocol.
+    3. Otherwise fall back to the legacy OpenAI-compatible protocol.
+    """
+    choice = (explicit or "").strip().lower().replace(" ", "")
+    if choice in _TOKEN_PLAN_PROVIDER_ALIASES:
+        return "token_plan"
+    if choice in _LEGACY_PROVIDER_ALIASES:
+        return "legacy"
+    for url in base_urls:
+        if url and is_token_plan_host(url):
+            return "token_plan"
+    return "legacy"
+
+
+def token_plan_media_base_url(*candidate_urls: str) -> str:
+    """Base URL (``scheme://host``, no path) for Token Plan media endpoints.
+
+    ``TOKEN_PLAN_MEDIA_BASE_URL`` overrides everything (handy for tests). Failing
+    that, the origin of any caller-supplied base URL already on the Token Plan
+    host is reused; otherwise the documented dedicated host is used.
+    """
+    explicit = _first_env("TOKEN_PLAN_MEDIA_BASE_URL")
+    if explicit:
+        return _origin(explicit)
+    for url in candidate_urls:
+        if url and is_token_plan_host(url):
+            return _origin(url)
+    return TOKEN_PLAN_MEDIA_BASE_URL
 
 
 def _resolve_timeout(timeout: "httpx.Timeout | float | None") -> httpx.Timeout:

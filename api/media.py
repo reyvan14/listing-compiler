@@ -1,7 +1,13 @@
 """Standalone image/video generation for tldraw media nodes.
 
-Uses OpenAI-compatible poloapi endpoints. Returns data URLs or provider
-CDN URLs. Does not call yidooo and does not upload to company R2 / AWS.
+Two protocols, both kept reachable (see ``token_plan.select_media_provider``):
+
+* legacy     - PoloAPI-style ``POST /videos`` (+ ``/videos/generations``).
+* token_plan - Token Plan async ``POST /api/v1/services/aigc/video-generation/
+               video-synthesis`` then ``GET /api/v1/tasks/{task_id}`` polling.
+
+Returns data URLs or provider CDN URLs. Does not call yidooo and does not
+upload to company R2 / AWS.
 """
 
 from __future__ import annotations
@@ -10,12 +16,14 @@ import asyncio
 import base64
 import logging
 import os
+import re
 from typing import Any
 
 import httpx
 
 from images import generate_prompt_image
 from media_errors import MediaError
+from token_plan import select_media_provider, token_plan_media_base_url
 
 logger = logging.getLogger("listing.media")
 
@@ -34,16 +42,66 @@ def _video_base() -> str:
 
 
 def _video_key() -> str:
+    # TOKEN_PLAN_API_KEY is the production-injected fallback shared with chat and
+    # image generation when no video-specific key is configured.
     return (
         os.environ.get("LISTING_VIDEO_API_KEY")
         or os.environ.get("LISTING_IMAGE_API_KEY")
         or os.environ.get("GPT_IMAGE_2_API_KEY")
+        or os.environ.get("TOKEN_PLAN_API_KEY")
         or ""
     ).strip()
 
 
+def _video_provider() -> str:
+    """``"token_plan"`` or ``"legacy"`` for the video protocol."""
+    return select_media_provider(
+        os.environ.get("LISTING_VIDEO_PROVIDER", ""),
+        (
+            os.environ.get("LISTING_VIDEO_BASE_URL", ""),
+            os.environ.get("LISTING_IMAGE_BASE_URL", ""),
+        ),
+    )
+
+
 def _video_model() -> str:
-    return os.environ.get("LISTING_VIDEO_MODEL", "sora-2")
+    explicit = (os.environ.get("LISTING_VIDEO_MODEL") or "").strip()
+    if explicit:
+        return explicit
+    return "happyhorse-1.1-t2v" if _video_provider() == "token_plan" else "sora-2"
+
+
+def _pos_float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _token_plan_ratio(aspect_ratio: str) -> str:
+    return aspect_ratio if aspect_ratio in {"16:9", "9:16", "1:1"} else "16:9"
+
+
+def _token_plan_resolution(aspect_ratio: str) -> str:
+    override = (os.environ.get("LISTING_VIDEO_RESOLUTION") or "").strip()
+    if override:
+        return override.upper()
+    dims = [int(d) for d in re.findall(r"\d+", _video_size(aspect_ratio))]
+    short_side = min(dims) if dims else 720
+    return "1080P" if short_side >= 1080 else "720P"
+
+
+def _token_plan_duration(duration: str) -> int:
+    digits = "".join(ch for ch in (duration or "") if ch.isdigit())
+    try:
+        seconds = int(digits)
+    except ValueError:
+        seconds = 0
+    return seconds if seconds > 0 else 5
 
 
 def _is_company_r2(url: str) -> bool:
@@ -102,6 +160,93 @@ async def generate_media_video(prompt: str, aspect_ratio: str, duration: str) ->
     text = (prompt or "").strip()
     if not text:
         raise MediaError("invalid_input", kind="video", detail="prompt empty")
+    if _video_provider() == "token_plan":
+        return await _generate_video_token_plan(text, aspect_ratio, duration)
+    return await _generate_video_legacy(text, aspect_ratio, duration)
+
+
+def _extract_task_id(payload: Any) -> str:
+    output = payload.get("output") if isinstance(payload, dict) else None
+    task_id = output.get("task_id") if isinstance(output, dict) else None
+    return task_id if isinstance(task_id, str) else ""
+
+
+async def _generate_video_token_plan(text: str, aspect_ratio: str, duration: str) -> str:
+    """Token Plan async video-synthesis protocol: submit, then poll the task."""
+    key = _video_key()
+    if not key:
+        raise MediaError("unconfigured", kind="video")
+    base = token_plan_media_base_url(
+        os.environ.get("LISTING_VIDEO_BASE_URL", ""),
+        os.environ.get("LISTING_IMAGE_BASE_URL", ""),
+    )
+    auth = {"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
+    body = {
+        "model": _video_model(),
+        "input": {"prompt": text},
+        "parameters": {
+            "resolution": _token_plan_resolution(aspect_ratio),
+            "ratio": _token_plan_ratio(aspect_ratio),
+            "duration": _token_plan_duration(duration),
+        },
+    }
+    interval = _pos_float_env("LISTING_VIDEO_POLL_INTERVAL_S", 15.0)
+    budget = _pos_float_env("LISTING_VIDEO_POLL_TIMEOUT_S", 600.0)
+    attempts = max(1, int(budget / interval)) if interval > 0 else 1
+    try:
+        async with _make_client(180.0) as client:
+            created = await client.post(
+                f"{base}/api/v1/services/aigc/video-generation/video-synthesis",
+                headers={**auth, "X-DashScope-Async": "enable"},
+                json=body,
+            )
+            if created.status_code != 200:
+                logger.warning(
+                    "token plan video submit http error status=%s category=provider_failure",
+                    created.status_code,
+                )
+                raise MediaError("provider_failure", kind="video", detail=f"status={created.status_code}")
+            try:
+                task_id = _extract_task_id(created.json() or {})
+            except ValueError:
+                raise MediaError("bad_response", kind="video", detail="submit body not json") from None
+            if not task_id:
+                raise MediaError("bad_response", kind="video", detail="missing task_id")
+
+            for _ in range(attempts):
+                await asyncio.sleep(interval)
+                polled = await client.get(f"{base}/api/v1/tasks/{task_id}", headers=auth)
+                if polled.status_code != 200:
+                    logger.warning(
+                        "token plan video poll http error status=%s category=provider_failure",
+                        polled.status_code,
+                    )
+                    raise MediaError("provider_failure", kind="video", detail=f"poll status={polled.status_code}")
+                try:
+                    output = (polled.json() or {}).get("output") or {}
+                except ValueError:
+                    raise MediaError("bad_response", kind="video", detail="poll body not json") from None
+                state = str(output.get("task_status") or "").upper()
+                if state == "SUCCEEDED":
+                    video_url = output.get("video_url")
+                    if not isinstance(video_url, str) or not video_url:
+                        raise MediaError("bad_response", kind="video", detail="succeeded without video_url")
+                    return await _as_playable(client, video_url)
+                if state == "FAILED":
+                    logger.warning("token plan video task reported FAILED category=provider_failure")
+                    raise MediaError("provider_failure", kind="video", detail="task status=FAILED")
+                # PENDING / RUNNING / UNKNOWN / anything else -> keep polling.
+            logger.warning("token plan video generation timed out category=timeout")
+            raise MediaError("timeout", kind="video", detail="poll exhausted")
+    except httpx.TimeoutException:
+        logger.warning("token plan video provider timeout category=timeout")
+        raise MediaError("timeout", kind="video") from None
+    except (httpx.RequestError, httpx.HTTPStatusError):
+        logger.warning("token plan video transport error category=provider_failure")
+        raise MediaError("provider_failure", kind="video", detail="transport") from None
+
+
+async def _generate_video_legacy(text: str, aspect_ratio: str, duration: str) -> str:
     key = _video_key()
     if not key:
         raise MediaError("unconfigured", kind="video")
