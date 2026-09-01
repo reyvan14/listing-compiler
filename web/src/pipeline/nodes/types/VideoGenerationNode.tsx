@@ -103,25 +103,29 @@ export class VideoGenerationNodeDefinition extends NodeDefinition<VideoGeneratio
   }
 
   async execute(shape: NodeShape, node: VideoGenerationNode): Promise<ExecutionResult> {
-    // Upstream SKU artifacts (brief + images) are the real inputs here: the
-    // brief becomes prompt context, the first usable image becomes the first
+    // Upstream artifacts are the real inputs here: SKU briefs and image-node
+    // prompts become prompt context, the first usable image becomes the first
     // frame of an image-to-video request.
+    //
+    // Resolved before validation, because a usable first frame is a complete
+    // image-to-video request on its own: only a request with neither a prompt
+    // nor a frame has nothing to send.
     const upstream = collectVideoUpstream(this.editor, shape)
+    // Only what is connected right now: a first frame left over from an
+    // earlier run must not silently be reused after a disconnect.
+    const firstFrameUrl = upstream.firstFrameUrl
     const prompt = composeVideoPrompt({
       brief: upstream.brief,
       texts: upstream.texts,
       userPrompt: node.prompt || '',
     })
-    if (!prompt) {
+    if (!prompt && !firstFrameUrl) {
       updateNode<VideoGenerationNode>(this.editor, shape, n => ({
         ...n,
         lastResult: '请先填写提示词',
       }))
       return { output: null }
     }
-    // Only what is connected right now: a first frame left over from an
-    // earlier run must not silently be reused after a disconnect.
-    const firstFrameUrl = upstream.firstFrameUrl
     try {
       const { url, poster } = await fetchMediaVideo({
         prompt,
@@ -131,7 +135,7 @@ export class VideoGenerationNodeDefinition extends NodeDefinition<VideoGeneratio
         firstFrameUrl,
       })
       const detail = ['已生成 1 条视频']
-      if (upstream.brief || upstream.texts.length) detail.push('已用上游文本素材')
+      if (upstream.brief || upstream.texts.some(t => t.trim())) detail.push('已用上游文本素材')
       if (firstFrameUrl) detail.push('首帧来自上游图片')
       updateNode<VideoGenerationNode>(this.editor, shape, n => ({
         ...n,

@@ -505,6 +505,141 @@ test('a connected SKU node feeds the video request with its brief and first fram
   expect(body!.first_frame_url).toBe('https://cdn.test/white.png');
 });
 
+/**
+ * Add an image node + a video node, put a generated image (and the given
+ * prompt) on the image node, and wire image output -> video input exactly as a
+ * user drag would.
+ */
+async function wireImageNodeToVideoNode(page: Page, imagePrompt: string, imageUrl: string) {
+  // Keep this focused interaction test independent of the fixed Agent overlay.
+  // At 1440px the second media node can otherwise land underneath that panel.
+  const collapseAgent = page.getByRole('button', { name: '收起 Agent 面板' });
+  if (await collapseAgent.isVisible().catch(() => false)) await collapseAgent.click();
+
+  await page.getByTitle('添加节点').click();
+  await page.getByRole('button', { name: '图片', exact: true }).click();
+  await expect(page.locator('.NodeShape_image_generation').last()).toBeVisible();
+  await page.getByTitle('添加节点').click();
+  await page.getByRole('button', { name: '视频', exact: true }).click();
+  const videoNode = page.locator('.NodeShape_video_generation').last();
+  await expect(videoNode).toBeVisible();
+
+  await page.evaluate(
+    ({ prompt, url }) => {
+      const editor = (window as unknown as {
+        editor: {
+          getCurrentPageShapes: () => Array<any>;
+          updateShape: (update: any) => void;
+          createShape: (shape: any) => void;
+          createBinding: (binding: any) => void;
+        };
+      }).editor;
+      const shapes = editor.getCurrentPageShapes();
+      const image = shapes.filter(s => s.type === 'node' && s.props.node.type === 'image_generation').pop();
+      const video = shapes.filter(s => s.type === 'node' && s.props.node.type === 'video_generation').pop();
+      editor.updateShape({
+        id: image.id,
+        type: image.type,
+        props: {
+          node: {
+            ...image.props.node,
+            prompt,
+            imageUrls: [url],
+            resultAspectRatio: null,
+            lastResult: '已生成 1 张图片',
+          },
+        },
+      });
+      const connectionId = `shape:${crypto.randomUUID()}`;
+      editor.createShape({ type: 'connection', id: connectionId, x: 0, y: 0 });
+      editor.createBinding({
+        type: 'connection',
+        fromId: connectionId,
+        toId: image.id,
+        props: { portId: 'output', terminal: 'start' },
+      });
+      editor.createBinding({
+        type: 'connection',
+        fromId: connectionId,
+        toId: video.id,
+        props: { portId: 'input', terminal: 'end' },
+      });
+      // Two media nodes sit wider than the framed station, so bring the video
+      // node fully on screen before the test clicks its controls.
+      editor.select(video.id);
+      editor.zoomToSelection();
+    },
+    { prompt: imagePrompt, url: imageUrl },
+  );
+  await page.waitForTimeout(600); // connection summary reflows the node
+  // Re-frame after React has applied that final height. The image-only summary
+  // wraps to an extra line, so framing the pre-render bounds leaves the action
+  // row just below the viewport on a 1440×900 test screen.
+  await page.evaluate(() => {
+    const editor = (window as unknown as { editor: { zoomToSelection: () => void } }).editor;
+    editor.zoomToSelection();
+  });
+  await page.waitForTimeout(600); // camera animation
+  return videoNode;
+}
+
+/** Capture the /api/media/video request body and answer with a playable stub. */
+async function stubVideoProvider(page: Page) {
+  const captured: { body: Record<string, string> | null } = { body: null };
+  await page.route('**/api/media/video', async route => {
+    captured.body = JSON.parse(route.request().postData() ?? '{}');
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 0, data: { url: 'data:video/mp4;base64,QQ==' } }),
+    });
+  });
+  return captured;
+}
+
+test('an image node with a blank prompt drives the video node as image-to-video', async ({
+  page,
+}) => {
+  await waitForStation(page);
+  const frame = svgDataUrl(1024, 1024);
+  const videoNode = await wireImageNodeToVideoNode(page, '', frame);
+
+  // Truthful, non-blocking summary: a first frame alone is a complete request.
+  await expect(videoNode.getByTestId('video-upstream-summary')).toHaveText(
+    '已连接首帧图片 · 1 张图片 · 第 1 张作为首帧 · 可直接生成，运镜描述可留空',
+  );
+
+  const captured = await stubVideoProvider(page);
+  await expect(videoNode.locator('textarea')).toHaveValue('');
+  await videoNode.getByRole('button', { name: '生成', exact: true }).click();
+  await expect.poll(() => captured.body).not.toBeNull();
+
+  // The provider really was called, with the connected image as the first frame.
+  expect(captured.body!.first_frame_url).toBe(frame);
+  expect(captured.body!.prompt).toBe('');
+  await expect(videoNode.getByText('请先填写提示词')).toHaveCount(0);
+  await expect(videoNode.locator('video')).toBeVisible();
+});
+
+test('the image node prompt travels to the video node as upstream context', async ({ page }) => {
+  await waitForStation(page);
+  const frame = svgDataUrl(1024, 1024);
+  const videoNode = await wireImageNodeToVideoNode(page, '白色背景上的折叠硅胶水杯', frame);
+
+  await expect(videoNode.getByTestId('video-upstream-summary')).toHaveText(
+    '已接入上游文本素材 · 1 张图片 · 第 1 张作为首帧',
+  );
+
+  const captured = await stubVideoProvider(page);
+  await videoNode.locator('textarea').fill('镜头缓慢推近');
+  await videoNode.getByRole('button', { name: '生成', exact: true }).click();
+  await expect.poll(() => captured.body).not.toBeNull();
+
+  expect(captured.body!.prompt).toContain('白色背景上的折叠硅胶水杯');
+  expect(captured.body!.prompt).toContain('【创意指令】镜头缓慢推近');
+  expect(captured.body!.first_frame_url).toBe(frame);
+});
+
 test('double-clicking a generated image opens and closes the lightbox', async ({ page }) => {
   await waitForStation(page);
   const node = await addImageNode(page);

@@ -78,7 +78,9 @@ class MediaVideoBody(BaseModel):
     duration: str = "5s"
     resolution: str = "720p"
     # Optional first frame for image-to-video. HTTP(S) URL or image data URL;
-    # anything else is ignored and the request stays text-to-video.
+    # anything else is ignored and the request stays text-to-video. With a
+    # usable first frame the prompt may be empty (image-to-video needs no
+    # motion description); without one a prompt is still required.
     first_frame_url: str | None = None
 
 

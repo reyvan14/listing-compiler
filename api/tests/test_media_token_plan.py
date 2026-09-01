@@ -309,6 +309,62 @@ def test_video_token_plan_first_frame_switches_to_i2v(monkeypatch):
     assert body["parameters"] == {"resolution": "720P", "duration": 5}
 
 
+def test_video_token_plan_i2v_accepts_empty_prompt_and_omits_it(monkeypatch):
+    """An image node with a blank prompt still produces a real i2v request.
+
+    Token Plan treats ``input.prompt`` as optional for image-to-video, so an
+    empty prompt is omitted from the body instead of being rejected upfront.
+    """
+    monkeypatch.setenv("LISTING_VIDEO_PROVIDER", "token_plan")
+    monkeypatch.setenv("LISTING_VIDEO_API_KEY", "sk-vid-tp")
+    _fast_poll(monkeypatch)
+    seen = {}
+
+    def handler(request):
+        if request.url.path == VIDEO_SUBMIT_PATH:
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"output": {"task_id": "t-i2v-noprompt"}})
+        return httpx.Response(
+            200, json={"output": {"task_status": "SUCCEEDED", "video_url": "data:video/mp4;base64,QQ=="}}
+        )
+
+    monkeypatch.setattr(media, "_make_client", mock_transport(handler))
+    r = client.post(
+        "/api/media/video",
+        json={
+            "prompt": "   ",
+            "aspect_ratio": "1:1",
+            "duration": "5s",
+            "first_frame_url": "https://cdn.example.test/cup.png",
+        },
+    )
+
+    assert r.status_code == 200
+    body = seen["body"]
+    assert body["model"] == "happyhorse-1.1-i2v"
+    assert "prompt" not in body["input"]
+    assert body["input"] == {"media": [{"type": "first_frame", "url": "https://cdn.example.test/cup.png"}]}
+    assert body["parameters"] == {"resolution": "720P", "duration": 5}
+
+
+def test_video_token_plan_empty_prompt_without_usable_frame_is_422(monkeypatch):
+    """No prompt and nothing the provider can fetch: still invalid input."""
+    monkeypatch.setenv("LISTING_VIDEO_PROVIDER", "token_plan")
+    monkeypatch.setenv("LISTING_VIDEO_API_KEY", "sk-vid-tp")
+
+    def handler(request):  # pragma: no cover - must never be reached
+        raise AssertionError("provider must not be called without prompt or frame")
+
+    monkeypatch.setattr(media, "_make_client", mock_transport(handler))
+    for frame in (None, "", "   ", "/station/cup-white.svg", "data:video/mp4;base64,QQ=="):
+        r = client.post(
+            "/api/media/video",
+            json={"prompt": "", "aspect_ratio": "16:9", "first_frame_url": frame},
+        )
+        assert r.status_code == 422, frame
+        assert r.json()["error"] == "invalid_input"
+
+
 def test_video_token_plan_first_frame_accepts_image_data_url(monkeypatch):
     monkeypatch.setenv("LISTING_VIDEO_PROVIDER", "token_plan")
     monkeypatch.setenv("LISTING_VIDEO_API_KEY", "sk-vid-tp")

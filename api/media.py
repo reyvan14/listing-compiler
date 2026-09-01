@@ -190,12 +190,18 @@ async def generate_media_video(
     first_frame_url: str | None = None,
 ) -> str:
     text = (prompt or "").strip()
-    if not text:
-        raise MediaError("invalid_input", kind="video", detail="prompt empty")
+    # Resolve the first frame *before* validating: an image-to-video request is
+    # complete with a usable first frame alone, so an empty prompt is only an
+    # error when there is no frame the provider could animate either.
     first_frame = normalize_first_frame(first_frame_url)
+    if not text and not first_frame:
+        raise MediaError("invalid_input", kind="video", detail="prompt and first frame empty")
     if _video_provider() == "token_plan":
         return await _generate_video_token_plan(text, aspect_ratio, duration, first_frame)
-    # The legacy protocol has no image input; behaviour is unchanged.
+    # The legacy protocol has no image input, so it still needs a prompt of its
+    # own; behaviour for every request it can serve is unchanged.
+    if not text:
+        raise MediaError("invalid_input", kind="video", detail="prompt empty")
     return await _generate_video_legacy(text, aspect_ratio, duration)
 
 
@@ -212,7 +218,8 @@ async def _generate_video_token_plan(
 
     With a first frame this is an image-to-video request: the i2v model, the
     frame in ``input.media``, and **no** ``parameters.ratio`` — i2v follows the
-    source image's ratio, so sending a requested ratio would fight it.
+    source image's ratio, so sending a requested ratio would fight it. The
+    prompt is optional for i2v and is omitted entirely when empty.
     """
     key = _video_key()
     if not key:
@@ -226,7 +233,9 @@ async def _generate_video_token_plan(
         "resolution": _token_plan_resolution(aspect_ratio),
         "duration": _token_plan_duration(duration),
     }
-    model_input: dict[str, Any] = {"prompt": text}
+    model_input: dict[str, Any] = {}
+    if text:
+        model_input["prompt"] = text
     if first_frame_url:
         model_input["media"] = [{"type": "first_frame", "url": first_frame_url}]
     else:

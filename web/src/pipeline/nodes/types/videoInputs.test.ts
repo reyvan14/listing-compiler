@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { composeVideoPrompt, videoUpstreamSummary, EMPTY_VIDEO_UPSTREAM } from './videoInputs'
+import {
+  composeVideoPrompt,
+  sourceNodeContext,
+  videoUpstreamSummary,
+  EMPTY_VIDEO_UPSTREAM,
+} from './videoInputs'
 
 describe('composeVideoPrompt', () => {
   it('keeps both the upstream brief and the user prompt', () => {
@@ -61,14 +66,84 @@ describe('videoUpstreamSummary', () => {
     expect(summary).not.toContain('第 1 张作为首帧')
   })
 
-  it('does not claim text artifacts when only images are connected', () => {
+  it('reports an image-only connection as ready to run, not as missing text', () => {
+    const summary = videoUpstreamSummary({
+      brief: '',
+      texts: [],
+      images: ['https://a.test/1.png'],
+      firstFrameUrl: 'https://a.test/1.png',
+    })
+    expect(summary).toBe('已连接首帧图片 · 1 张图片 · 第 1 张作为首帧 · 可直接生成，运镜描述可留空')
+    expect(summary).not.toContain('上游暂无文本素材')
+  })
+
+  it('still reports missing text when no image is usable as a first frame', () => {
     expect(
       videoUpstreamSummary({
         brief: '',
         texts: [],
+        images: ['blob-only'],
+        firstFrameUrl: null,
+      }),
+    ).toBe('上游暂无文本素材 · 1 张图片 · 图片地址不可直接作首帧')
+  })
+
+  it('reports both sources when an image node contributes its prompt', () => {
+    expect(
+      videoUpstreamSummary({
+        brief: '',
+        texts: ['白色背景上的折叠水杯'],
         images: ['https://a.test/1.png'],
         firstFrameUrl: 'https://a.test/1.png',
       }),
-    ).toBe('上游暂无文本素材 · 1 张图片 · 第 1 张作为首帧')
+    ).toBe('已接入上游文本素材 · 1 张图片 · 第 1 张作为首帧')
+  })
+})
+
+describe('sourceNodeContext', () => {
+  it('uses an image node prompt as upstream text context', () => {
+    expect(sourceNodeContext({ type: 'image_generation', prompt: ' 白色背景上的折叠水杯 ' })).toEqual({
+      brief: '',
+      text: '白色背景上的折叠水杯',
+      images: [],
+    })
+  })
+
+  it('contributes nothing extra when the image node prompt is blank', () => {
+    expect(sourceNodeContext({ type: 'image_generation', prompt: '   ' })).toEqual({
+      brief: '',
+      text: '',
+      images: [],
+    })
+  })
+
+  it('reads the brief and image assets off a SKU node', () => {
+    expect(
+      sourceNodeContext({
+        type: 'sku_listing',
+        videoBrief: '产品：杯子',
+        imageAssets: ['https://a.test/1.png'],
+      }),
+    ).toEqual({ brief: '产品：杯子', text: '', images: ['https://a.test/1.png'] })
+  })
+
+  it('ignores node types that carry no upstream context', () => {
+    expect(sourceNodeContext({ type: 'listing_result' })).toEqual({
+      brief: '',
+      text: '',
+      images: [],
+    })
+  })
+})
+
+describe('composeVideoPrompt with an image node upstream', () => {
+  it('keeps the image node prompt when the video node has none', () => {
+    expect(composeVideoPrompt({ brief: '', texts: ['白色背景上的折叠水杯'], userPrompt: '' })).toBe(
+      '白色背景上的折叠水杯',
+    )
+  })
+
+  it('is empty when the image node prompt is blank too — the first frame carries the request', () => {
+    expect(composeVideoPrompt({ brief: '', texts: [], userPrompt: '' })).toBe('')
   })
 })

@@ -65,6 +65,31 @@ def test_video_empty_prompt_returns_422():
     assert r.json()["error"] == "invalid_input"
 
 
+def test_video_empty_prompt_with_unusable_first_frame_returns_422():
+    """A frame the provider cannot fetch is no substitute for a prompt."""
+    r = client.post(
+        "/api/media/video", json={"prompt": "  ", "first_frame_url": "/station/cup-white.svg"}
+    )
+    assert r.status_code == 422
+    assert r.json()["error"] == "invalid_input"
+
+
+def test_video_legacy_empty_prompt_still_422_even_with_first_frame(monkeypatch):
+    """The legacy protocol has no image input, so it always needs a prompt."""
+    monkeypatch.setenv("LISTING_VIDEO_API_KEY", "sk-vid-test")
+
+    def handler(request):  # pragma: no cover - must never be reached
+        raise AssertionError("legacy provider must not be called without a prompt")
+
+    monkeypatch.setattr(media, "_make_client", mock_transport(handler))
+    r = client.post(
+        "/api/media/video",
+        json={"prompt": "", "first_frame_url": "https://cdn.example.test/cup.png"},
+    )
+    assert r.status_code == 422
+    assert r.json()["error"] == "invalid_input"
+
+
 # --------------------------------------------------------------------------- #
 # provider failure -> 502 / timeout -> 504, no body leak                       #
 # --------------------------------------------------------------------------- #
