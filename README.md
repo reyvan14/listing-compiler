@@ -10,6 +10,8 @@
 - 图片：兼容 `/images/generations`，成功结果以 data URL 返回。
 - 检查：`checker.py` 只检查字段内容与素材模式，不读取图片像素。
 - 投放：下载 15 秒分镜 TXT，不生成视频文件。
+- 媒体节点：SKU 生成成功后落一份下游素材包（视频 brief + 去重图片）；接到「视频生成」节点时，
+  brief 进提示词、首张可用图片作首帧（走 `happyhorse-1.1-i2v`）。
 - 边界：不自动上架，不担保审核结果。
 
 ## 启动
@@ -37,7 +39,7 @@ cd web && yarn && yarn dev
 | `TOKEN_PLAN_AGENT_MODEL` | 工位 Agent 用的模型 | `qwen3.7-plus` |
 | `TOKEN_PLAN_TIMEOUT_S` / `TOKEN_PLAN_CONNECT_TIMEOUT_S` | 读 / 连接超时（秒） | `60` / `10` |
 
-未配置 Key 时自动回退到本地 `fallback_drafts`，演示仍可运行。图片 / 视频 Provider **暂未接入 Token Plan**（协议未核实），保持原样。
+未配置 Key 时自动回退到本地 `fallback_drafts`，演示仍可运行。图片 / 视频 Provider 也支持 Token Plan 专用协议（见 `docs/DEPLOY.md`），未配置时保持旧供应商链路。
 
 连通性自检（不打印 Key）：`cd api && python scripts/check_token_plan.py`
 

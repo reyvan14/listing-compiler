@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 
 import httpx
 from fastapi.testclient import TestClient
@@ -133,6 +134,37 @@ def test_video_provider_timeout_returns_504(monkeypatch):
     assert r.json()["error"] == "provider_timeout"
     assert r.json()["message"] == "模型服务响应超时，请稍后重试。"
     assert "sk-vid-test" not in r.text
+
+
+def test_video_legacy_ignores_first_frame_and_keeps_its_body(monkeypatch):
+    """The legacy /videos protocol has no image input: a first_frame_url must
+    not change the request it sends."""
+    monkeypatch.setenv("LISTING_VIDEO_API_KEY", "sk-vid-test")
+    seen = {}
+
+    def handler(request):
+        if request.url.path.endswith("/videos"):
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"url": "data:video/mp4;base64,QQ=="})
+        return httpx.Response(404)
+
+    monkeypatch.setattr(media, "_make_client", mock_transport(handler))
+    r = client.post(
+        "/api/media/video",
+        json={
+            "prompt": "a cup unfolding",
+            "aspect_ratio": "16:9",
+            "duration": "5s",
+            "first_frame_url": "https://cdn.example.test/cup.png",
+        },
+    )
+    assert r.status_code == 200
+    assert seen["body"] == {
+        "model": "sora-2",
+        "prompt": "a cup unfolding",
+        "seconds": "5",
+        "size": "1280x720",
+    }
 
 
 # --------------------------------------------------------------------------- #

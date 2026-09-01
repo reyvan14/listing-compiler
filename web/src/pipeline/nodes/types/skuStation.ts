@@ -26,8 +26,9 @@ export type SkuListingNode = {
   assetMode: AssetMode
   spawnedIds: string[]
   adSpawnedId: string | null
-  stepIndex: number
   lastError: string
+  videoBrief: string
+  imageAssets: string[]
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
@@ -128,9 +129,20 @@ export function defaultSkuNode(): SkuListingNode {
     assetMode: 'compliant',
     spawnedIds: [],
     adSpawnedId: null,
-    stepIndex: 0,
     lastError: '',
+    videoBrief: '',
+    imageAssets: [],
   }
+}
+
+/**
+ * The status line shown while a run is in flight. The elapsed seconds are a real
+ * client-side timer; the backend reports no stage progress, so the text says
+ * only that generation is running and that we are waiting for the model.
+ */
+export function skuRunStatusText(elapsedSeconds: number): string {
+  const seconds = Number.isFinite(elapsedSeconds) ? Math.max(0, Math.floor(elapsedSeconds)) : 0
+  return `生成中 · 已用 ${seconds}s · 正在等待模型返回`
 }
 
 export function selectedPlatforms(node: SkuListingNode): PlatformId[] {

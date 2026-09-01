@@ -77,6 +77,9 @@ class MediaVideoBody(BaseModel):
     aspect_ratio: str = "9:16"
     duration: str = "5s"
     resolution: str = "720p"
+    # Optional first frame for image-to-video. HTTP(S) URL or image data URL;
+    # anything else is ignored and the request stays text-to-video.
+    first_frame_url: str | None = None
 
 
 def _media_error_response(exc: MediaError) -> JSONResponse:
@@ -108,7 +111,9 @@ async def media_image(body: MediaImageBody):
 @app.post("/api/media/video")
 async def media_video(body: MediaVideoBody):
     try:
-        url = await generate_media_video(body.prompt, body.aspect_ratio, body.duration)
+        url = await generate_media_video(
+            body.prompt, body.aspect_ratio, body.duration, body.first_frame_url
+        )
     except MediaError as exc:
         return _media_error_response(exc)
     except ValueError:

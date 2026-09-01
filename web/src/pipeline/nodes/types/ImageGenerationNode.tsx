@@ -1,6 +1,6 @@
 import { fetchMediaImage } from '@/station/mediaApi'
 import { toSafeMessage } from '@/station/apiClient'
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties, type SyntheticEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { T, useEditor, useValue } from 'tldraw'
 import { ImageGenerateIcon } from '../../components/icons/ImageGenerateIcon'
@@ -10,12 +10,13 @@ import { ShapePort } from '../../ports/Port'
 import { NodeShape } from '../NodeShapeUtil'
 import {
   IMAGE_ASPECT_RATIOS,
-  IMAGE_NODE_WIDTH_PX,
   defaultImageNode,
   imageBodyHeightPx,
+  imageDisplayRatio,
+  imageNodeWidthPx,
   imagePreviewHeightPx,
+  intrinsicAspectRatio,
   mediaSidePortY,
-  RESULT_NODE_WIDTH_PX,
 } from './mediaStation'
 import form from './mediaForm.module.scss'
 import {
@@ -40,6 +41,9 @@ export const ImageGenerationNode = T.object({
   referenceImages: T.arrayOf(T.string),
   lastResult: T.string.nullable(),
   imageUrls: T.arrayOf(T.string),
+  // Intrinsic ratio ("<naturalWidth>:<naturalHeight>") of the loaded result
+  // image. Null until the returned image has loaded; drives preview + geometry.
+  resultAspectRatio: T.string.nullable(),
   spawnedNodeIds: T.arrayOf(T.string),
   text2imgDone: T.boolean,
   isResultNode: T.boolean,
@@ -69,7 +73,7 @@ export class ImageGenerationNodeDefinition extends NodeDefinition<ImageGeneratio
   }
 
   override getWidthPx(_shape: NodeShape, node: ImageGenerationNode) {
-    return node.isResultNode ? RESULT_NODE_WIDTH_PX : IMAGE_NODE_WIDTH_PX
+    return imageNodeWidthPx(node)
   }
 
   getBodyHeightPx(_shape: NodeShape, node: ImageGenerationNode) {
@@ -77,7 +81,7 @@ export class ImageGenerationNodeDefinition extends NodeDefinition<ImageGeneratio
   }
 
   getPorts(_shape: NodeShape, node: ImageGenerationNode): Record<string, ShapePort> {
-    const width = node.isResultNode ? RESULT_NODE_WIDTH_PX : IMAGE_NODE_WIDTH_PX
+    const width = imageNodeWidthPx(node)
     const midY = mediaSidePortY(imageBodyHeightPx(node))
     return {
       input: {
@@ -111,6 +115,8 @@ export class ImageGenerationNodeDefinition extends NodeDefinition<ImageGeneratio
       updateNode<ImageGenerationNode>(this.editor, shape, n => ({
         ...n,
         imageUrls: [url],
+        // Cleared here, re-read from naturalWidth/naturalHeight once it loads.
+        resultAspectRatio: null,
         lastResult: '已生成 1 张图片',
         text2imgDone: true,
       }))
@@ -119,6 +125,7 @@ export class ImageGenerationNodeDefinition extends NodeDefinition<ImageGeneratio
       updateNode<ImageGenerationNode>(this.editor, shape, n => ({
         ...n,
         imageUrls: [],
+        resultAspectRatio: null,
         lastResult: toSafeMessage(err),
       }))
       return { output: null }
@@ -216,9 +223,19 @@ function ImageGenerationNodeComponent({ shape, node }: NodeComponentProps<ImageG
     updateNode<ImageGenerationNode>(editor, shape, n => ({ ...n, ...update }), false)
 
   const preview = node.imageUrls[0]
+  const displayRatio = imageDisplayRatio(node)
   const previewStyle = {
-    '--media-preview-height': `${imagePreviewHeightPx(node.aspectRatio)}px`,
+    '--media-preview-height': `${imagePreviewHeightPx(displayRatio)}px`,
   } as CSSProperties
+
+  // The provider can return a different ratio than the requested one, so the
+  // preview and the tldraw geometry follow the asset that actually arrived.
+  const onImageLoad = (event: SyntheticEvent<HTMLImageElement>) => {
+    const img = event.currentTarget
+    const ratio = intrinsicAspectRatio(img.naturalWidth, img.naturalHeight)
+    if (!ratio || ratio === node.resultAspectRatio) return
+    updateNode<ImageGenerationNode>(editor, shape, n => ({ ...n, resultAspectRatio: ratio }), false)
+  }
   const generate = () => {
     if (isGraphRunning) {
       stopExecution(editor)
@@ -229,7 +246,7 @@ function ImageGenerationNodeComponent({ shape, node }: NodeComponentProps<ImageG
 
   return (
     <div className="ImageGenNode">
-      <div className="ImageGenNode-imageBox" style={previewStyle} data-aspect-ratio={node.aspectRatio}>
+      <div className="ImageGenNode-imageBox" style={previewStyle} data-aspect-ratio={displayRatio}>
         {preview ? (
           <img
             className="ImageGenNode-image ImageGenNode-image_contain"
@@ -237,6 +254,7 @@ function ImageGenerationNodeComponent({ shape, node }: NodeComponentProps<ImageG
             alt="generated"
             draggable={false}
             title="双击查看大图"
+            onLoad={onImageLoad}
             onPointerDown={keepOnControl}
             onDoubleClick={event => {
               event.stopPropagation()
@@ -264,7 +282,9 @@ function ImageGenerationNodeComponent({ shape, node }: NodeComponentProps<ImageG
             onWheel={e => e.stopPropagation()}
           />
           <div className={form.row}>
-            <div className={form.pills}>
+            {/* Request parameter only: the preview keeps a neutral shape until a
+              * result arrives, then follows that image's real ratio. */}
+            <div className={form.pills} title="请求比例：只发送给模型，预览按出图的真实比例显示">
               {IMAGE_ASPECT_RATIOS.map(ratio => (
                 <button
                   key={ratio}

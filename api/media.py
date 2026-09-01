@@ -71,6 +71,33 @@ def _video_model() -> str:
     return "happyhorse-1.1-t2v" if _video_provider() == "token_plan" else "sora-2"
 
 
+def _video_image_model() -> str:
+    """Model for an image-to-video request (a first frame was supplied).
+
+    The text-to-video override (``LISTING_VIDEO_MODEL``) is deliberately not
+    consulted here: a t2v model cannot accept a first frame.
+    """
+    return (os.environ.get("LISTING_VIDEO_IMAGE_MODEL") or "").strip() or "happyhorse-1.1-i2v"
+
+
+def normalize_first_frame(url: str | None) -> str:
+    """The official API accepts HTTP(S) URLs and image data URLs; drop the rest.
+
+    Anything else (a site-relative path, a ``file://`` URL, a non-image data
+    URL) is ignored, so the request safely falls back to text-to-video instead
+    of sending the provider something it cannot fetch.
+    """
+    value = (url or "").strip()
+    if not value:
+        return ""
+    lowered = value.lower()
+    if lowered.startswith(("http://", "https://")):
+        return value
+    if lowered.startswith("data:image/"):
+        return value
+    return ""
+
+
 def _pos_float_env(name: str, default: float) -> float:
     raw = os.environ.get(name)
     if raw is None or not raw.strip():
@@ -156,12 +183,19 @@ async def _as_playable(client: httpx.AsyncClient, url: str) -> str:
     return f"data:{mime};base64,{base64.b64encode(blob).decode('ascii')}"
 
 
-async def generate_media_video(prompt: str, aspect_ratio: str, duration: str) -> str:
+async def generate_media_video(
+    prompt: str,
+    aspect_ratio: str,
+    duration: str,
+    first_frame_url: str | None = None,
+) -> str:
     text = (prompt or "").strip()
     if not text:
         raise MediaError("invalid_input", kind="video", detail="prompt empty")
+    first_frame = normalize_first_frame(first_frame_url)
     if _video_provider() == "token_plan":
-        return await _generate_video_token_plan(text, aspect_ratio, duration)
+        return await _generate_video_token_plan(text, aspect_ratio, duration, first_frame)
+    # The legacy protocol has no image input; behaviour is unchanged.
     return await _generate_video_legacy(text, aspect_ratio, duration)
 
 
@@ -171,8 +205,15 @@ def _extract_task_id(payload: Any) -> str:
     return task_id if isinstance(task_id, str) else ""
 
 
-async def _generate_video_token_plan(text: str, aspect_ratio: str, duration: str) -> str:
-    """Token Plan async video-synthesis protocol: submit, then poll the task."""
+async def _generate_video_token_plan(
+    text: str, aspect_ratio: str, duration: str, first_frame_url: str = ""
+) -> str:
+    """Token Plan async video-synthesis protocol: submit, then poll the task.
+
+    With a first frame this is an image-to-video request: the i2v model, the
+    frame in ``input.media``, and **no** ``parameters.ratio`` — i2v follows the
+    source image's ratio, so sending a requested ratio would fight it.
+    """
     key = _video_key()
     if not key:
         raise MediaError("unconfigured", kind="video")
@@ -181,14 +222,19 @@ async def _generate_video_token_plan(text: str, aspect_ratio: str, duration: str
         os.environ.get("LISTING_IMAGE_BASE_URL", ""),
     )
     auth = {"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
+    parameters: dict[str, Any] = {
+        "resolution": _token_plan_resolution(aspect_ratio),
+        "duration": _token_plan_duration(duration),
+    }
+    model_input: dict[str, Any] = {"prompt": text}
+    if first_frame_url:
+        model_input["media"] = [{"type": "first_frame", "url": first_frame_url}]
+    else:
+        parameters["ratio"] = _token_plan_ratio(aspect_ratio)
     body = {
-        "model": _video_model(),
-        "input": {"prompt": text},
-        "parameters": {
-            "resolution": _token_plan_resolution(aspect_ratio),
-            "ratio": _token_plan_ratio(aspect_ratio),
-            "duration": _token_plan_duration(duration),
-        },
+        "model": _video_image_model() if first_frame_url else _video_model(),
+        "input": model_input,
+        "parameters": parameters,
     }
     interval = _pos_float_env("LISTING_VIDEO_POLL_INTERVAL_S", 15.0)
     budget = _pos_float_env("LISTING_VIDEO_POLL_TIMEOUT_S", 600.0)

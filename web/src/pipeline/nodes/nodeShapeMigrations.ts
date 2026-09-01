@@ -66,6 +66,10 @@ export const nodeShapeVersions = createShapePropsMigrationIds('node', {
 	// 圈层画像：demandSignals[]/businessTendencies[] 双多选 → 单选 signalType（需求信号/商业倾向），
 	// 由旧字段尽力推断后删旧键（T.object 严格校验）。
 	ReworkPersonaSignalType: 19,
+	// 图片生成预览改「按结果真实比例」：新增 resultAspectRatio（结果图 naturalWidth:naturalHeight）。
+	AddImageGenResultAspectRatio: 20,
+	// SKU 上架编译器：删除假阶段进度 stepIndex，新增下游素材包 videoBrief/imageAssets。
+	AddSkuDownstreamArtifacts: 21,
 })
 
 // 图片/视频「类型」改为传英文码（显示中文、存英文）。旧的中文值/缺失统一回填为默认。
@@ -163,6 +167,9 @@ export function backfillNodeProps(node: Record<string, unknown>): Record<string,
 			node.isResultNode ??= false
 			// #40 新增必填 name 但漏了 backfill：旧画布缺 name 会让整批 createShapes 校验抛错、整张画布加载失败。
 			node.name ??= '图片节点'
+			// 结果图真实比例（"1600:900"）。旧记录无该字段 → null：出图 onLoad 时按 naturalWidth/Height 写入，
+			// 写入前预览用中性 16:9（请求比例按钮不再决定预览/结果显示）。
+			if (typeof node.resultAspectRatio !== 'string') node.resultAspectRatio = null
 			break
 		case 'video_generation':
 			node.platform ??= 'TikTok'
@@ -200,6 +207,14 @@ export function backfillNodeProps(node: Record<string, unknown>): Record<string,
 			if (typeof node.videoType !== 'string' || !VIDEO_TYPE_CODES.includes(node.videoType)) {
 				node.videoType = 'QuickClip'
 			}
+			break
+		case 'sku_listing':
+			// 假阶段进度已移除（后端不上报阶段），删旧键（T.object 严格校验拒绝未知键）。
+			if ('stepIndex' in node) delete node.stepIndex
+			// 下游素材包：生成成功后写入的视频 brief 与去重图片资产。旧画布补空值，
+			// 下一次生成成功时自然填充。
+			node.videoBrief ??= ''
+			if (!Array.isArray(node.imageAssets)) node.imageAssets = []
 			break
 		case 'load_image':
 			node.thumbnailUrl ??= null
@@ -436,6 +451,24 @@ export const nodeShapeMigrations = createShapePropsMigrationSequence({
 		{
 			// 圈层画像信号维度改单选：删 demandSignals/businessTendencies、推断写入 signalType（backfillNodeProps 含删字段，幂等）。
 			id: nodeShapeVersions.ReworkPersonaSignalType,
+			up: (props) => ({
+				...props,
+				node: backfillNodeProps({ ...(props.node as Record<string, unknown>) }),
+			}),
+			down: 'retired',
+		},
+		{
+			// 给已存在的 image_generation 补 resultAspectRatio（backfillNodeProps 累积且幂等）。
+			id: nodeShapeVersions.AddImageGenResultAspectRatio,
+			up: (props) => ({
+				...props,
+				node: backfillNodeProps({ ...(props.node as Record<string, unknown>) }),
+			}),
+			down: 'retired',
+		},
+		{
+			// sku_listing：删 stepIndex、补 videoBrief/imageAssets（backfillNodeProps 含删字段，幂等）。
+			id: nodeShapeVersions.AddSkuDownstreamArtifacts,
 			up: (props) => ({
 				...props,
 				node: backfillNodeProps({ ...(props.node as Record<string, unknown>) }),

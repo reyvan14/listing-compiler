@@ -271,6 +271,133 @@ def test_video_token_plan_maps_size_and_seconds_inputs(monkeypatch):
     assert seen["params"] == {"resolution": "720P", "ratio": "9:16", "duration": 8}
 
 
+def test_video_token_plan_first_frame_switches_to_i2v(monkeypatch):
+    """A first frame => happyhorse-1.1-i2v, input.media, and no parameters.ratio."""
+    monkeypatch.setenv("LISTING_VIDEO_PROVIDER", "token_plan")
+    monkeypatch.setenv("LISTING_VIDEO_API_KEY", "sk-vid-tp")
+    _fast_poll(monkeypatch)
+    seen = {}
+
+    def handler(request):
+        if request.url.path == VIDEO_SUBMIT_PATH:
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"output": {"task_id": "t-i2v"}})
+        return httpx.Response(
+            200, json={"output": {"task_status": "SUCCEEDED", "video_url": "data:video/mp4;base64,QQ=="}}
+        )
+
+    monkeypatch.setattr(media, "_make_client", mock_transport(handler))
+    r = client.post(
+        "/api/media/video",
+        json={
+            "prompt": "cup unfolds",
+            "aspect_ratio": "1:1",
+            "duration": "5s",
+            "first_frame_url": "https://cdn.example.test/cup.png",
+        },
+    )
+
+    assert r.status_code == 200
+    body = seen["body"]
+    assert body["model"] == "happyhorse-1.1-i2v"
+    assert body["input"] == {
+        "prompt": "cup unfolds",
+        "media": [{"type": "first_frame", "url": "https://cdn.example.test/cup.png"}],
+    }
+    # i2v follows the source image ratio: no ratio is sent.
+    assert "ratio" not in body["parameters"]
+    assert body["parameters"] == {"resolution": "720P", "duration": 5}
+
+
+def test_video_token_plan_first_frame_accepts_image_data_url(monkeypatch):
+    monkeypatch.setenv("LISTING_VIDEO_PROVIDER", "token_plan")
+    monkeypatch.setenv("LISTING_VIDEO_API_KEY", "sk-vid-tp")
+    _fast_poll(monkeypatch)
+    data_url = "data:image/png;base64,iVBORw0KGgo="
+    seen = {}
+
+    def handler(request):
+        if request.url.path == VIDEO_SUBMIT_PATH:
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"output": {"task_id": "t-data"}})
+        return httpx.Response(
+            200, json={"output": {"task_status": "SUCCEEDED", "video_url": "data:video/mp4;base64,QQ=="}}
+        )
+
+    monkeypatch.setattr(media, "_make_client", mock_transport(handler))
+    r = client.post(
+        "/api/media/video",
+        json={"prompt": "x", "aspect_ratio": "9:16", "first_frame_url": data_url},
+    )
+    assert r.status_code == 200
+    assert seen["body"]["model"] == "happyhorse-1.1-i2v"
+    assert seen["body"]["input"]["media"] == [{"type": "first_frame", "url": data_url}]
+
+
+def test_video_token_plan_image_model_override(monkeypatch):
+    monkeypatch.setenv("LISTING_VIDEO_PROVIDER", "token_plan")
+    monkeypatch.setenv("LISTING_VIDEO_API_KEY", "sk-vid-tp")
+    monkeypatch.setenv("LISTING_VIDEO_IMAGE_MODEL", "happyhorse-9.9-i2v")
+    # The t2v override must not leak into an image-to-video request.
+    monkeypatch.setenv("LISTING_VIDEO_MODEL", "custom-t2v")
+    _fast_poll(monkeypatch)
+    seen = {}
+
+    def handler(request):
+        if request.url.path == VIDEO_SUBMIT_PATH:
+            seen["model"] = json.loads(request.content)["model"]
+            return httpx.Response(200, json={"output": {"task_id": "t-ov"}})
+        return httpx.Response(
+            200, json={"output": {"task_status": "SUCCEEDED", "video_url": "data:video/mp4;base64,QQ=="}}
+        )
+
+    monkeypatch.setattr(media, "_make_client", mock_transport(handler))
+    r = client.post(
+        "/api/media/video",
+        json={"prompt": "x", "aspect_ratio": "16:9", "first_frame_url": "https://cdn.example.test/a.jpg"},
+    )
+    assert r.status_code == 200
+    assert seen["model"] == "happyhorse-9.9-i2v"
+
+
+def test_video_token_plan_unusable_first_frame_stays_text_to_video(monkeypatch):
+    """A site-relative path / non-image data URL is not something the provider
+    can fetch, so the request falls back to t2v with its ratio."""
+    monkeypatch.setenv("LISTING_VIDEO_PROVIDER", "token_plan")
+    monkeypatch.setenv("LISTING_VIDEO_API_KEY", "sk-vid-tp")
+    _fast_poll(monkeypatch)
+    seen = {}
+
+    def handler(request):
+        if request.url.path == VIDEO_SUBMIT_PATH:
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"output": {"task_id": "t-rel"}})
+        return httpx.Response(
+            200, json={"output": {"task_status": "SUCCEEDED", "video_url": "data:video/mp4;base64,QQ=="}}
+        )
+
+    monkeypatch.setattr(media, "_make_client", mock_transport(handler))
+    r = client.post(
+        "/api/media/video",
+        json={"prompt": "x", "aspect_ratio": "16:9", "first_frame_url": "/station/cup-white.svg"},
+    )
+    assert r.status_code == 200
+    assert seen["body"]["model"] == "happyhorse-1.1-t2v"
+    assert "media" not in seen["body"]["input"]
+    assert seen["body"]["parameters"]["ratio"] == "16:9"
+
+
+def test_normalize_first_frame_accepts_only_http_and_image_data_urls():
+    assert media.normalize_first_frame("https://a.test/x.png") == "https://a.test/x.png"
+    assert media.normalize_first_frame(" http://a.test/x.png ") == "http://a.test/x.png"
+    assert media.normalize_first_frame("data:image/jpeg;base64,AA==") == "data:image/jpeg;base64,AA=="
+    assert media.normalize_first_frame("data:video/mp4;base64,AA==") == ""
+    assert media.normalize_first_frame("/station/cup.svg") == ""
+    assert media.normalize_first_frame("file:///tmp/a.png") == ""
+    assert media.normalize_first_frame(None) == ""
+    assert media.normalize_first_frame("") == ""
+
+
 def test_video_token_plan_failed_status_returns_502(monkeypatch):
     monkeypatch.setenv("LISTING_VIDEO_PROVIDER", "token_plan")
     monkeypatch.setenv("LISTING_VIDEO_API_KEY", "sk-vid-tp")

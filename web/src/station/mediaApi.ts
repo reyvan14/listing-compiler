@@ -15,6 +15,13 @@ export type MediaVideoInput = {
   aspectRatio: string;
   duration: string;
   resolution: string;
+  /**
+   * Optional first frame for an image-to-video request. Must be an HTTP(S) URL
+   * or an image data URL — the only forms the provider accepts. When present
+   * the backend switches to the image-to-video model and follows the source
+   * ratio instead of the requested one.
+   */
+  firstFrameUrl?: string | null;
 };
 
 export async function fetchMediaImage(
@@ -36,6 +43,7 @@ export async function fetchMediaVideo(
   input: MediaVideoInput,
   opts: PostJsonOptions = {},
 ): Promise<{ url: string; poster?: string }> {
+  const firstFrameUrl = (input.firstFrameUrl || '').trim();
   return postJson<{ url: string; poster?: string }>(
     '/api/media/video',
     {
@@ -43,6 +51,7 @@ export async function fetchMediaVideo(
       aspect_ratio: input.aspectRatio,
       duration: input.duration,
       resolution: input.resolution,
+      ...(firstFrameUrl ? { first_frame_url: firstFrameUrl } : {}),
     },
     { timeoutMs: 180_000, ...opts },
   );

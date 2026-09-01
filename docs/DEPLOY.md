@@ -50,7 +50,8 @@ uvicorn 进程。
 | `LISTING_IMAGE_PROVIDER` / `LISTING_VIDEO_PROVIDER` | | 自动 | 显式选 `token_plan` 或 `legacy`。留空时：对应 `*_BASE_URL` 命中 `token-plan.` 域名则自动判定为 `token_plan`，否则 `legacy`。 |
 | `LISTING_IMAGE_API_KEY` / `LISTING_VIDEO_API_KEY` | | — | 媒体专用 Key。**未设置时回退到 `TOKEN_PLAN_API_KEY`**（生产由 systemd 注入的同一把专属 Key）。 |
 | `LISTING_IMAGE_MODEL` | | `gpt-image-2-c` / `qwen-image-2.0` | 留空时按 provider 取默认：legacy 用 `gpt-image-2-c`，token_plan 用 `qwen-image-2.0`。 |
-| `LISTING_VIDEO_MODEL` | | `sora-2` / `happyhorse-1.1-t2v` | 同上，token_plan 默认 `happyhorse-1.1-t2v`。 |
+| `LISTING_VIDEO_MODEL` | | `sora-2` / `happyhorse-1.1-t2v` | 同上，token_plan 默认 `happyhorse-1.1-t2v`（文生视频）。 |
+| `LISTING_VIDEO_IMAGE_MODEL` | | `happyhorse-1.1-i2v` | 图生视频（请求带 `first_frame_url`）用的模型。文生视频的 `LISTING_VIDEO_MODEL` 覆盖**不会**用于图生视频。 |
 | `TOKEN_PLAN_MEDIA_BASE_URL` | | `https://token-plan.cn-beijing.maas.aliyuncs.com` | Token Plan 媒体协议的 origin 覆盖（主要给测试用）。 |
 | `LISTING_VIDEO_POLL_INTERVAL_S` | | `15` | Token Plan 视频为异步任务，提交后按此间隔轮询 `GET /api/v1/tasks/{task_id}`。 |
 | `LISTING_VIDEO_POLL_TIMEOUT_S` | | `600` | 轮询整体超时（秒）；超时返回 504。测试时调小。 |
@@ -64,6 +65,10 @@ Token Plan 专用端点（专属 host，不要用通用 `dashscope.aliyuncs.com`
   `X-DashScope-Async: enable`），取 `output.task_id`；轮询 `GET /api/v1/tasks/{task_id}`，
   `output.task_status` 为 `SUCCEEDED` 时取 `output.video_url`，`FAILED` 时返回明确错误。
   现有 `seconds` / `size` 输入映射到 `duration` / `resolution` / `ratio`。
+- 图生视频：`POST /api/media/video` 可带可选的 `first_frame_url`（**仅** HTTP(S) URL 或图片
+  data URL，其它一律忽略并退回文生视频）。带首帧时改用 `happyhorse-1.1-i2v`（或
+  `LISTING_VIDEO_IMAGE_MODEL`），`input.media` 放一个 `{"type": "first_frame", "url": ...}`，
+  且**不发** `parameters.ratio`——图生视频跟随源图比例。legacy 协议无图片输入，行为保持不变。
 
 ### 选择默认模型的理由
 

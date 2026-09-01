@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { GENERATE_STEPS } from '@/station/data'
 import { ApiError, toSafeMessage } from '@/station/apiClient'
+import { buildSkuArtifacts } from '@/station/skuArtifacts'
 import {
   announceListingSource,
   fetchListingDrafts,
@@ -26,6 +26,7 @@ import {
   SKU_NODE_WIDTH,
   skuBodyHeightPx,
   skuPointsRows,
+  skuRunStatusText,
   spawnPlatformResults,
 } from './skuStation'
 import styles from './skuStation.module.scss'
@@ -49,9 +50,13 @@ export const SkuListingNode = T.object({
   assetMode: T.literalEnum('compliant', 'promo'),
   spawnedIds: T.arrayOf(T.string),
   adSpawnedId: T.string.nullable(),
-  stepIndex: T.number,
   // safe Chinese message from the last run that could not reach / use the backend
   lastError: T.string,
+  // Downstream artifact package from the last successful run: a textual video
+  // brief assembled from the generated drafts, plus the SKU's real images.
+  // Consumed by a connected 视频生成 node (see videoInputs.ts).
+  videoBrief: T.string,
+  imageAssets: T.arrayOf(T.string),
 })
 // Structurally identical to the hand-written type in ./skuStation; derived here
 // from the validator so the shape and its schema can't drift.
@@ -119,15 +124,12 @@ export class SkuListingNodeDefinition extends NodeDefinition<SkuListingNode> {
   ): Promise<ExecutionResult> {
     // No demo data is injected here. The component validates the form before
     // it ever calls startExecution, so the values below are the user's own.
-    updateNode<SkuListingNode>(this.editor, shape, n => ({ ...n, stepIndex: 0, lastError: '' }), false)
+    updateNode<SkuListingNode>(this.editor, shape, n => ({ ...n, lastError: '' }), false)
     const live0 = (this.editor.getShape(shape.id) as NodeShape | undefined) ?? shape
     const sku = live0.props.node as SkuListingNode
 
-    let stepIndex = 0
-    const tick = window.setInterval(() => {
-      stepIndex = Math.min(stepIndex + 1, GENERATE_STEPS.length - 1)
-      updateNode<SkuListingNode>(this.editor, shape, n => ({ ...n, stepIndex }), false)
-    }, 1800)
+    // No phase ticker: the backend reports no stage progress, so the node only
+    // shows the real elapsed time and that it is waiting for the model.
     try {
       const { drafts, source } = await fetchListingDrafts(
         {
@@ -143,6 +145,19 @@ export class SkuListingNodeDefinition extends NodeDefinition<SkuListingNode> {
       if (signal?.aborted) return { output: '' }
       spawnPlatformResults(this.editor, shape, drafts)
       announceListingSource(source)
+      // Persist the downstream artifact package for connected media nodes.
+      const artifacts = buildSkuArtifacts({
+        productName: sku.productName,
+        points: sku.points,
+        uploads: sku.uploads,
+        drafts,
+      })
+      updateNode<SkuListingNode>(
+        this.editor,
+        shape,
+        n => ({ ...n, videoBrief: artifacts.brief, imageAssets: artifacts.images }),
+        false,
+      )
     } catch (err) {
       const cancelled =
         signal?.aborted || (err instanceof ApiError && err.category === 'aborted')
@@ -156,14 +171,14 @@ export class SkuListingNodeDefinition extends NodeDefinition<SkuListingNode> {
           false,
         )
       }
-    } finally {
-      window.clearInterval(tick)
     }
 
     const live = (this.editor.getShape(shape.id) as NodeShape | undefined) ?? shape
     const current = live.props.node as SkuListingNode
     const name = current.productName || node.productName
-    const result: ExecutionResult = { output: name }
+    // The generic output carries the generated brief so downstream text
+    // consumers get the real artifact, not just the product name.
+    const result: ExecutionResult = { output: current.videoBrief || name }
     for (const id of selectedPlatforms(current)) result[`output_${id}`] = name
     return result
   }
@@ -171,7 +186,7 @@ export class SkuListingNodeDefinition extends NodeDefinition<SkuListingNode> {
   getOutputInfo(shape: NodeShape, node: SkuListingNode): InfoValues {
     const info: InfoValues = {
       output: {
-        value: '',
+        value: node.videoBrief || node.productName,
         isOutOfDate: shape.props.isOutOfDate,
         dataType: 'text',
       },
@@ -293,7 +308,15 @@ function SkuListingNodeComponent({ shape, node }: NodeComponentProps<SkuListingN
     })
     spawnPlatformResults(editor, shape, drafts)
     announceListingSource(source)
-    patch({ lastError: '' })
+    // Downstream media nodes read the same artifact package either way; here it
+    // is assembled from the local sample drafts the user explicitly asked for.
+    const artifacts = buildSkuArtifacts({
+      productName: node.productName,
+      points: node.points,
+      uploads: node.uploads,
+      drafts,
+    })
+    patch({ lastError: '', videoBrief: artifacts.brief, imageAssets: artifacts.images })
   }
 
   const pointRows = skuPointsRows(node)
@@ -380,7 +403,7 @@ function SkuListingNodeComponent({ shape, node }: NodeComponentProps<SkuListingN
 
       <p className={styles.stepNow}>
         {isExecuting
-          ? `生成中… 已用 ${elapsed}s · ${GENERATE_STEPS[node.stepIndex]}`
+          ? skuRunStatusText(elapsed)
           : node.assetMode === 'promo'
             ? '带字竖版不能当 Amazon / TikTok Shop 商品主图。'
             : ' '}

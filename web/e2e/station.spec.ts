@@ -325,52 +325,20 @@ test('media port DOM center matches the tldraw connection coordinate', async ({ 
   expect(delta).toBeLessThanOrEqual(1.5);
 });
 
-test('image preview follows the selected ratio and never crops the asset', async ({ page }) => {
-  await waitForStation(page);
-  const node = await addImageNode(page);
-  const box = node.locator('.ImageGenNode-imageBox');
+const RATIO_BUTTONS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2'];
 
-  const square = await box.boundingBox();
-  expect(square).not.toBeNull();
-  expect(Math.abs(square!.width / square!.height - 1)).toBeLessThan(0.02);
-
-  await node.getByRole('button', { name: '16:9', exact: true }).click();
-  await page.waitForTimeout(150);
-  const wide = await box.boundingBox();
-  expect(wide).not.toBeNull();
-  expect(Math.abs(wide!.width / wide!.height - 16 / 9)).toBeLessThan(0.03);
-
-  const dataUrl =
+function svgDataUrl(width: number, height: number) {
+  return (
     'data:image/svg+xml;charset=utf-8,' +
-    encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect width="1600" height="900" fill="%23d8a63f"/></svg>');
-  await page.evaluate(src => {
-    const editor = (window as unknown as {
-      editor: {
-        getCurrentPageShapes: () => Array<any>;
-        updateShape: (update: any) => void;
-      };
-    }).editor;
-    const shape = editor
-      .getCurrentPageShapes()
-      .find(item => item.type === 'node' && item.props.node.type === 'image_generation');
-    editor.updateShape({
-      id: shape.id,
-      type: shape.type,
-      props: { node: { ...shape.props.node, imageUrls: [src], lastResult: '已生成 1 张图片' } },
-    });
-  }, dataUrl);
-  const image = node.locator('img[alt="generated"]');
-  await expect(image).toBeVisible();
-  expect(await image.evaluate(element => getComputedStyle(element).objectFit)).toBe('contain');
-});
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}" fill="%23d8a63f"/></svg>`,
+    )
+  );
+}
 
-test('double-clicking a generated image opens and closes the lightbox', async ({ page }) => {
-  await waitForStation(page);
-  const node = await addImageNode(page);
-  const dataUrl =
-    'data:image/svg+xml;charset=utf-8,' +
-    encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800"><rect width="800" height="800" fill="%234b7bec"/></svg>');
-  await page.evaluate(src => {
+/** Put a generated result on the (single) image node, as the provider would. */
+async function setGeneratedImage(page: Page, src: string) {
+  await page.evaluate(url => {
     const editor = (window as unknown as {
       editor: { getCurrentPageShapes: () => Array<any>; updateShape: (update: any) => void };
     }).editor;
@@ -380,9 +348,167 @@ test('double-clicking a generated image opens and closes the lightbox', async ({
     editor.updateShape({
       id: shape.id,
       type: shape.type,
-      props: { node: { ...shape.props.node, imageUrls: [src], lastResult: '已生成 1 张图片' } },
+      props: {
+        node: { ...shape.props.node, imageUrls: [url], resultAspectRatio: null, lastResult: '已生成 1 张图片' },
+      },
     });
-  }, dataUrl);
+  }, src);
+}
+
+test('request-ratio buttons never resize the empty preview', async ({ page }) => {
+  await waitForStation(page);
+  const node = await addImageNode(page);
+  const box = node.locator('.ImageGenNode-imageBox');
+
+  const neutral = await box.boundingBox();
+  expect(neutral).not.toBeNull();
+  // Before a result exists the preview keeps a stable neutral 16:9 shape.
+  expect(Math.abs(neutral!.width / neutral!.height - 16 / 9)).toBeLessThan(0.03);
+
+  for (const ratio of RATIO_BUTTONS) {
+    await node.getByRole('button', { name: ratio, exact: true }).click();
+    await page.waitForTimeout(120);
+    const after = await box.boundingBox();
+    expect(after!.width).toBeCloseTo(neutral!.width, 0);
+    expect(after!.height).toBeCloseTo(neutral!.height, 0);
+  }
+});
+
+test('a 1:1 request returning a 1600x900 image renders as 16:9', async ({ page }) => {
+  await waitForStation(page);
+  const node = await addImageNode(page);
+  const box = node.locator('.ImageGenNode-imageBox');
+
+  await node.getByRole('button', { name: '1:1', exact: true }).click();
+  await page.waitForTimeout(120);
+  const requested = await box.boundingBox();
+  expect(Math.abs(requested!.width / requested!.height - 16 / 9)).toBeLessThan(0.03);
+
+  await setGeneratedImage(page, svgDataUrl(1600, 900));
+  const image = node.locator('img[alt="generated"]');
+  await expect(image).toBeVisible();
+  await page.waitForTimeout(300); // onLoad -> intrinsic ratio -> geometry
+
+  const rendered = await box.boundingBox();
+  expect(Math.abs(rendered!.width / rendered!.height - 16 / 9)).toBeLessThan(0.03);
+  // contain keeps the whole asset visible, so nothing is cropped.
+  expect(await image.evaluate(element => getComputedStyle(element).objectFit)).toBe('contain');
+  const drawn = await image.boundingBox();
+  expect(Math.abs(drawn!.width / drawn!.height - 16 / 9)).toBeLessThan(0.05);
+});
+
+test('a portrait result resizes the preview and keeps the ports on the connection point', async ({
+  page,
+}) => {
+  await waitForStation(page);
+  const node = await addImageNode(page);
+  const box = node.locator('.ImageGenNode-imageBox');
+
+  await setGeneratedImage(page, svgDataUrl(1024, 1536));
+  await expect(node.locator('img[alt="generated"]')).toBeVisible();
+  await page.waitForTimeout(300);
+
+  const portrait = await box.boundingBox();
+  expect(Math.abs(portrait!.width / portrait!.height - 1024 / 1536)).toBeLessThan(0.03);
+
+  // The tldraw port coordinate must still land on the visible port after the
+  // node geometry followed the asset.
+  const delta = await node.evaluate(element => {
+    const port = element.querySelector<HTMLElement>('.NodeShape-sidePorts .Port_end');
+    const editor = (window as unknown as { editor: { getCamera: () => { z: number } } }).editor;
+    if (!port) throw new Error('image input port missing');
+    const nodeBox = element.getBoundingClientRect();
+    const portBox = port.getBoundingClientRect();
+    const modelY = Number.parseFloat(getComputedStyle(port).getPropertyValue('--port-y'));
+    const expectedScreenY = nodeBox.top + modelY * editor.getCamera().z;
+    return Math.abs(expectedScreenY - (portBox.top + portBox.height / 2));
+  });
+  expect(delta).toBeLessThanOrEqual(1.5);
+});
+
+test('a connected SKU node feeds the video request with its brief and first frame', async ({
+  page,
+}) => {
+  await waitForStation(page);
+
+  // Add a video node next to the seeded SKU node.
+  await page.getByTitle('添加节点').click();
+  await page.getByRole('button', { name: '视频', exact: true }).click();
+  const videoNode = page.locator('.NodeShape_video_generation').last();
+  await expect(videoNode).toBeVisible();
+
+  // Put a real artifact package on the SKU node (what a successful run persists)
+  // and wire SKU output -> video input, exactly as a user drag would.
+  await page.evaluate(() => {
+    const editor = (window as unknown as {
+      editor: {
+        getCurrentPageShapes: () => Array<any>;
+        updateShape: (update: any) => void;
+        createShape: (shape: any) => void;
+        createBinding: (binding: any) => void;
+      };
+    }).editor;
+    const shapes = editor.getCurrentPageShapes();
+    const sku = shapes.find(s => s.type === 'node' && s.props.node.type === 'sku_listing');
+    const video = shapes.find(s => s.type === 'node' && s.props.node.type === 'video_generation');
+    editor.updateShape({
+      id: sku.id,
+      type: sku.type,
+      props: {
+        node: {
+          ...sku.props.node,
+          productName: '折叠硅胶水杯 350ml',
+          videoBrief: '产品：折叠硅胶水杯 350ml\n\n【Amazon 草稿】\n标题：Collapsible Silicone Travel Cup',
+          imageAssets: ['https://cdn.test/white.png', '/station/cup-lifestyle.svg'],
+        },
+      },
+    });
+    const connectionId = `shape:${crypto.randomUUID()}`;
+    editor.createShape({ type: 'connection', id: connectionId, x: 0, y: 0 });
+    editor.createBinding({
+      type: 'connection',
+      fromId: connectionId,
+      toId: sku.id,
+      props: { portId: 'output', terminal: 'start' },
+    });
+    editor.createBinding({
+      type: 'connection',
+      fromId: connectionId,
+      toId: video.id,
+      props: { portId: 'input', terminal: 'end' },
+    });
+  });
+
+  // Truthful summary of what is really connected.
+  await expect(videoNode.getByTestId('video-upstream-summary')).toHaveText(
+    '已接入上游文本素材 · 2 张图片 · 第 1 张作为首帧',
+  );
+
+  // The node's own prompt is combined with the upstream brief, not discarded.
+  await videoNode.locator('textarea').fill('镜头从桌面缓慢推近');
+
+  let body: Record<string, string> | null = null;
+  await page.route('**/api/media/video', async route => {
+    body = JSON.parse(route.request().postData() ?? '{}');
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 0, data: { url: 'data:video/mp4;base64,QQ==' } }),
+    });
+  });
+  await videoNode.getByRole('button', { name: '生成', exact: true }).click();
+  await expect.poll(() => body).not.toBeNull();
+
+  expect(body!.prompt).toContain('产品：折叠硅胶水杯 350ml');
+  expect(body!.prompt).toContain('Collapsible Silicone Travel Cup');
+  expect(body!.prompt).toContain('【创意指令】镜头从桌面缓慢推近');
+  expect(body!.first_frame_url).toBe('https://cdn.test/white.png');
+});
+
+test('double-clicking a generated image opens and closes the lightbox', async ({ page }) => {
+  await waitForStation(page);
+  const node = await addImageNode(page);
+  await setGeneratedImage(page, svgDataUrl(800, 800));
 
   await node.locator('img[alt="generated"]').dblclick();
   const lightbox = page.getByTestId('image-lightbox');

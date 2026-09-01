@@ -2753,6 +2753,26 @@ body {
   word-break: break-word;
 }
 
+/* 媒体区里的「状态 + 上游素材摘要」纵向堆叠（视频节点用）。
+ * 放在 imageBox 内部，不改变 body 高度，因而不影响端口/连线几何。 */
+.ImageGenNode-statusStack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  text-align: center;
+}
+
+/* 上游素材摘要：只描述真实连接（文本素材 / N 张图片 / 首帧）。 */
+.ImageGenNode-upstream {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--tl-color-text-3);
+  word-break: break-word;
+}
+
 /* 多图结果：2 列网格铺满，全部可见。 */
 .ImageGenNode-imageBox_grid {
   display: grid;

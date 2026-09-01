@@ -26,6 +26,18 @@ export const SKU_MEDIA_SKU_WIDTH = 300
 export const IMAGE_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2'] as const
 export const VIDEO_ASPECT_RATIOS = ['9:16', '16:9', '1:1'] as const
 
+/**
+ * The shape of the preview before any result exists. The request-ratio buttons
+ * (1:1 / 16:9 / …) are request parameters only: they are sent to the provider
+ * but must never resize the empty preview, because the provider may return a
+ * different intrinsic ratio and the node would then jump twice.
+ */
+export const NEUTRAL_PREVIEW_RATIO = '16:9'
+
+/** Guard against degenerate intrinsic ratios (a 3000x200 banner, a 1x1 pixel). */
+const MIN_PREVIEW_HEIGHT_PX = 96
+const MAX_PREVIEW_HEIGHT_PX = 725
+
 export function mediaSidePortY(bodyPx: number, hasHeading = true): number {
   if (!hasHeading) return bodyPx / 2
   const total = NODE_HEADER_HEIGHT_PX + NODE_ROW_HEADER_GAP_PX + bodyPx + NODE_ROW_BOTTOM_PADDING_PX
@@ -48,7 +60,34 @@ export function resultBoxSizePx(aspectRatio: string): { w: number; h: number } {
 
 export function imagePreviewHeightPx(aspectRatio: string): number {
   const { w, h } = parseAspect(aspectRatio)
-  return Math.round((IMAGE_PREVIEW_WIDTH_PX * h) / w)
+  const raw = Math.round((IMAGE_PREVIEW_WIDTH_PX * h) / w)
+  return Math.min(MAX_PREVIEW_HEIGHT_PX, Math.max(MIN_PREVIEW_HEIGHT_PX, raw))
+}
+
+/** `"1600:900"` for a real 1600x900 asset; null when the dimensions are unusable. */
+export function intrinsicAspectRatio(naturalWidth: number, naturalHeight: number): string | null {
+  if (!Number.isFinite(naturalWidth) || !Number.isFinite(naturalHeight)) return null
+  if (naturalWidth <= 0 || naturalHeight <= 0) return null
+  return `${Math.round(naturalWidth)}:${Math.round(naturalHeight)}`
+}
+
+function isUsableRatio(value: string | null | undefined): value is string {
+  if (!value) return false
+  const [w, h] = value.split(':').map(Number)
+  return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0
+}
+
+/**
+ * The ratio the preview box and the tldraw geometry actually use: the loaded
+ * result's intrinsic ratio once it is known, otherwise the neutral shape.
+ * `node.aspectRatio` (the requested one) is deliberately not consulted.
+ */
+export function imageDisplayRatio(
+  node: Pick<ImageGenerationNode, 'imageUrls' | 'resultAspectRatio'>,
+): string {
+  const hasResult = (node.imageUrls?.length ?? 0) > 0
+  if (hasResult && isUsableRatio(node.resultAspectRatio)) return node.resultAspectRatio
+  return NEUTRAL_PREVIEW_RATIO
 }
 
 export function defaultImageNode(): ImageGenerationNode {
@@ -64,6 +103,7 @@ export function defaultImageNode(): ImageGenerationNode {
     referenceImages: [],
     lastResult: null,
     imageUrls: [],
+    resultAspectRatio: null,
     spawnedNodeIds: [],
     text2imgDone: false,
     isResultNode: false,
@@ -193,8 +233,14 @@ export function ensureMediaNodes(editor: Editor) {
 }
 
 export function imageBodyHeightPx(node: ImageGenerationNode): number {
-  if (node.isResultNode) return resultBoxSizePx(node.aspectRatio).h
-  return imagePreviewHeightPx(node.aspectRatio) + IMAGE_FORM_CHROME_PX
+  const ratio = imageDisplayRatio(node)
+  if (node.isResultNode) return resultBoxSizePx(ratio).h
+  return imagePreviewHeightPx(ratio) + IMAGE_FORM_CHROME_PX
+}
+
+/** Node width. Result cards follow the asset ratio; generators keep a fixed width. */
+export function imageNodeWidthPx(node: ImageGenerationNode): number {
+  return node.isResultNode ? resultBoxSizePx(imageDisplayRatio(node)).w : IMAGE_NODE_WIDTH_PX
 }
 
 export function videoBodyHeightPx(node: VideoGenerationNode): number {
