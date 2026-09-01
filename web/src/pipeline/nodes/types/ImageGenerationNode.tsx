@@ -1,4 +1,5 @@
 import { fetchMediaImage } from '@/station/mediaApi'
+import { toSafeMessage } from '@/station/apiClient'
 import { T, useEditor, useValue } from 'tldraw'
 import { ImageGenerateIcon } from '../../components/icons/ImageGenerateIcon'
 import { executionState, startExecution, stopExecution } from '../../execution/executionState'
@@ -112,11 +113,10 @@ export class ImageGenerationNodeDefinition extends NodeDefinition<ImageGeneratio
       }))
       return { output: url }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '生成失败'
       updateNode<ImageGenerationNode>(this.editor, shape, n => ({
         ...n,
         imageUrls: [],
-        lastResult: `生成失败：${msg}`,
+        lastResult: toSafeMessage(err),
       }))
       return { output: null }
     }

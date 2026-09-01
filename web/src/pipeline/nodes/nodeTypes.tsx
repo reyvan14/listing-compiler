@@ -98,8 +98,14 @@ export async function executeNode(
   editor: Editor,
   shape: NodeShape,
   inputs: Record<string, string | number | null | (string | number | null)[]>,
+  signal?: AbortSignal,
 ): Promise<ExecutionResult> {
-  return await getNodeDefinition(editor, shape.props.node).execute(shape, shape.props.node, inputs);
+  return await getNodeDefinition(editor, shape.props.node).execute(
+    shape,
+    shape.props.node,
+    inputs,
+    signal,
+  );
 }
 
 export function getNodeOutputInfo(

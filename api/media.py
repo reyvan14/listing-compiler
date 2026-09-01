@@ -8,12 +8,21 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 import os
 from typing import Any
 
 import httpx
 
 from images import generate_prompt_image
+from media_errors import MediaError
+
+logger = logging.getLogger("listing.media")
+
+
+# Seam for tests: overridden to inject an httpx.MockTransport.
+def _make_client(timeout: float = 180.0) -> httpx.AsyncClient:
+    return httpx.AsyncClient(timeout=timeout)
 
 
 def _video_base() -> str:
@@ -77,7 +86,8 @@ async def _as_playable(client: httpx.AsyncClient, url: str) -> str:
     if url.startswith("data:"):
         return url
     if _is_company_r2(url):
-        raise ValueError("dropped company R2 url")
+        logger.warning("video provider returned a company R2 url; dropped category=provider_failure")
+        raise MediaError("provider_failure", kind="video", detail="r2 url dropped")
     # Keep provider CDN URLs as-is; only inline small-ish mp4s.
     resp = await client.get(url)
     resp.raise_for_status()
@@ -91,10 +101,10 @@ async def _as_playable(client: httpx.AsyncClient, url: str) -> str:
 async def generate_media_video(prompt: str, aspect_ratio: str, duration: str) -> str:
     text = (prompt or "").strip()
     if not text:
-        raise ValueError("prompt empty")
+        raise MediaError("invalid_input", kind="video", detail="prompt empty")
     key = _video_key()
     if not key:
-        raise ValueError("LISTING_VIDEO_API_KEY not set")
+        raise MediaError("unconfigured", kind="video")
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
     body = {
         "model": _video_model(),
@@ -102,41 +112,56 @@ async def generate_media_video(prompt: str, aspect_ratio: str, duration: str) ->
         "seconds": _duration_seconds(duration),
         "size": _video_size(aspect_ratio),
     }
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        created = await client.post(f"{_video_base()}/videos", headers=headers, json=body)
-        if created.status_code == 404:
-            created = await client.post(f"{_video_base()}/videos/generations", headers=headers, json=body)
-        if created.status_code != 200:
-            raise ValueError(f"video api {created.status_code}: {created.text[:240]}")
-        payload = created.json() or {}
-        direct = _pick_url(payload)
-        if direct:
-            return await _as_playable(client, direct)
+    try:
+        async with _make_client(180.0) as client:
+            created = await client.post(f"{_video_base()}/videos", headers=headers, json=body)
+            if created.status_code == 404:
+                created = await client.post(f"{_video_base()}/videos/generations", headers=headers, json=body)
+            if created.status_code != 200:
+                logger.warning(
+                    "video provider http error status=%s category=provider_failure", created.status_code
+                )
+                raise MediaError("provider_failure", kind="video", detail=f"status={created.status_code}")
+            payload = created.json() or {}
+            direct = _pick_url(payload)
+            if direct:
+                return await _as_playable(client, direct)
 
-        video_id = payload.get("id") or (payload.get("data") or {}).get("id") if isinstance(payload.get("data"), dict) else payload.get("id")
-        if not video_id:
-            raise ValueError("video api missing id/url")
+            video_id = payload.get("id") or (payload.get("data") or {}).get("id") if isinstance(payload.get("data"), dict) else payload.get("id")
+            if not video_id:
+                raise MediaError("bad_response", kind="video", detail="missing id/url")
 
-        for _ in range(36):
-            await asyncio.sleep(5)
-            status = await client.get(f"{_video_base()}/videos/{video_id}", headers=headers)
-            if status.status_code != 200:
-                raise ValueError(f"video poll {status.status_code}: {status.text[:240]}")
-            item = status.json() or {}
-            state = str(item.get("status") or "")
-            if state in {"failed", "error"}:
-                raise ValueError(item.get("error") or "video failed")
-            ready = _pick_url(item)
-            if ready or state in {"completed", "succeeded", "success"}:
-                if ready:
-                    return await _as_playable(client, ready)
-                content = await client.get(f"{_video_base()}/videos/{video_id}/content", headers=headers)
-                if content.status_code == 200 and content.content:
-                    mime = content.headers.get("content-type", "video/mp4").split(";")[0] or "video/mp4"
-                    if _is_company_r2(str(content.headers.get("location") or "")):
-                        raise ValueError("dropped company R2 url")
-                    if len(content.content) > 12_000_000:
-                        raise ValueError("video too large to inline")
-                    return f"data:{mime};base64,{base64.b64encode(content.content).decode('ascii')}"
-                raise ValueError("video completed without url")
-        raise ValueError("video timed out")
+            for _ in range(36):
+                await asyncio.sleep(5)
+                status = await client.get(f"{_video_base()}/videos/{video_id}", headers=headers)
+                if status.status_code != 200:
+                    logger.warning(
+                        "video poll http error status=%s category=provider_failure", status.status_code
+                    )
+                    raise MediaError("provider_failure", kind="video", detail=f"poll status={status.status_code}")
+                item = status.json() or {}
+                state = str(item.get("status") or "")
+                if state in {"failed", "error"}:
+                    logger.warning("video provider reported failure category=provider_failure")
+                    raise MediaError("provider_failure", kind="video", detail="provider reported failure")
+                ready = _pick_url(item)
+                if ready or state in {"completed", "succeeded", "success"}:
+                    if ready:
+                        return await _as_playable(client, ready)
+                    content = await client.get(f"{_video_base()}/videos/{video_id}/content", headers=headers)
+                    if content.status_code == 200 and content.content:
+                        mime = content.headers.get("content-type", "video/mp4").split(";")[0] or "video/mp4"
+                        if _is_company_r2(str(content.headers.get("location") or "")):
+                            raise MediaError("provider_failure", kind="video", detail="r2 url dropped")
+                        if len(content.content) > 12_000_000:
+                            raise MediaError("bad_response", kind="video", detail="too large to inline")
+                        return f"data:{mime};base64,{base64.b64encode(content.content).decode('ascii')}"
+                    raise MediaError("bad_response", kind="video", detail="completed without url")
+            logger.warning("video generation timed out category=timeout")
+            raise MediaError("timeout", kind="video", detail="poll exhausted")
+    except httpx.TimeoutException:
+        logger.warning("video provider timeout category=timeout")
+        raise MediaError("timeout", kind="video") from None
+    except (httpx.RequestError, httpx.HTTPStatusError):
+        logger.warning("video provider transport error category=provider_failure")
+        raise MediaError("provider_failure", kind="video", detail="transport") from None

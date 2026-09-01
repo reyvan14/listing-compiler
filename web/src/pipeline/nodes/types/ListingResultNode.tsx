@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { T } from 'tldraw'
 import { NODE_HEADER_HEIGHT_PX } from '../../constants'
 import { Port, ShapePort } from '../../ports/Port'
@@ -10,7 +11,6 @@ import {
   STAMP,
   worstCheck,
   worstCheckItem,
-  type ListingResultNode,
 } from './skuStation'
 import styles from './skuStation.module.scss'
 import {
@@ -20,7 +20,6 @@ import {
   NodeDefinition,
 } from './shared'
 
-export type { ListingResultNode }
 export const ListingResultNode = T.object({
   type: T.literal('listing_result'),
   platform: T.literalEnum('amazon', 'tiktok', 'shopify', 'ad'),
@@ -41,6 +40,9 @@ export const ListingResultNode = T.object({
   script: T.arrayOf(T.string),
   note: T.string,
 })
+// Structurally identical to the hand-written type in ./skuStation; derived here
+// from the validator so the shape and its schema can't drift.
+export type ListingResultNode = T.TypeOf<typeof ListingResultNode>
 
 function GoldMark() {
   return (
@@ -129,9 +131,18 @@ function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingR
     node.platform !== 'ad' &&
     node.checks.some(c => c.id === 'img' && c.state === 'fix')
 
-  const copy = (text: string) => {
-    void navigator.clipboard.writeText(text)
+  const [copied, setCopied] = useState<null | 'ok' | 'err'>(null)
+  const copyTitle = async () => {
+    try {
+      await navigator.clipboard.writeText(node.title)
+      setCopied('ok')
+    } catch {
+      setCopied('err')
+    }
+    window.setTimeout(() => setCopied(null), 2000)
   }
+  const copyLabel =
+    copied === 'ok' ? '已复制标题' : copied === 'err' ? '复制失败，请手动选择' : '复制标题'
 
   return (
     <div className={styles.body}>
@@ -178,8 +189,14 @@ function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingR
           <div className={styles.titleBlock}>
             <small>标题</small>
             <p>{node.title}</p>
-            <button type="button" onPointerDown={keepOnControl} onClick={() => copy(node.title)}>
-              复制
+            <button
+              type="button"
+              data-copied={copied ?? undefined}
+              aria-live="polite"
+              onPointerDown={keepOnControl}
+              onClick={copyTitle}
+            >
+              {copyLabel}
             </button>
           </div>
           <dl className={styles.fields}>

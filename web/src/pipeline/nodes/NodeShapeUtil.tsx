@@ -52,18 +52,6 @@ declare module 'tldraw' {
 
 export type NodeShape = TLShape<typeof NODE_TYPE>;
 
-function NodePorts({ shape }: { shape: NodeShape }) {
-  const editor = useEditor();
-  const ports = useValue('node ports', () => getNodeTypePorts(editor, shape), [shape, editor]);
-  return (
-    <>
-      {Object.values(ports).map(port => (
-        <Port key={port.id} shapeId={shape.id} portId={port.id} />
-      ))}
-    </>
-  );
-}
-
 function StationSkuPorts({ shape }: { shape: NodeShape }) {
   const editor = useEditor();
   const ports = useValue('sku ports', () => getNodeTypePorts(editor, shape), [shape, editor]);
@@ -298,7 +286,6 @@ function NodeShapeComponent({ shape }: { shape: NodeShape }) {
     <HTMLContainer
       className={classNames('NodeShape', {
         NodeShape_executing: isExecuting,
-        NodeShape_capture: shape.props.node.type === 'capture',
         NodeShape_chromeless: !nodeDefinition.showHeading && !nodeDefinition.showFooter,
         NodeShape_image_generation: shape.props.node.type === 'image_generation',
         NodeShape_video_generation: shape.props.node.type === 'video_generation',
@@ -389,7 +376,6 @@ function NodeShapeComponent({ shape }: { shape: NodeShape }) {
         </div>
       )}
 
-      {nodeDefinition.type === 'message' && <NodePorts shape={shape} />}
       {shape.props.node.type === 'sku_listing' && <StationSkuPorts shape={shape} />}
     </HTMLContainer>
   );

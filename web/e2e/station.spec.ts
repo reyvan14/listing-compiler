@@ -1,0 +1,296 @@
+import { expect, test, type Page } from '@playwright/test';
+
+const SHOTS = 'e2e/screenshots';
+
+async function waitForStation(page: Page) {
+  await page.goto('/');
+  await page.waitForSelector('#station-generate', { timeout: 20_000 });
+  await page.waitForTimeout(900); // let tldraw settle / auto-frame
+}
+
+function tag(testInfo: { project: { name: string } }) {
+  return testInfo.project.name; // desktop-1440 / desktop-1280
+}
+
+async function ensureAgentOpen(page: Page) {
+  const expand = page.getByRole('button', { name: '展开 Agent 面板' });
+  if (await expand.isVisible().catch(() => false)) await expand.click();
+  await expect(page.locator('aside[aria-label="Agent 对话"]')).toBeVisible();
+}
+
+/** Screen-space right edge of the Agent (its left edge when collapsed → viewport width). */
+async function agentLeftEdge(page: Page, viewportWidth: number) {
+  const aside = page.locator('aside[aria-label="Agent 对话"]');
+  if (await aside.isVisible().catch(() => false)) {
+    const box = await aside.boundingBox();
+    if (box) return box.x;
+  }
+  return viewportWidth;
+}
+
+const THREE_DRAFTS = {
+  code: 0,
+  data: {
+    source: 'llm',
+    drafts: [
+      { id: 'amazon', title: 'Amazon title from model', fields: [], checks: [] },
+      { id: 'tiktok', title: 'Tiktok title from model', fields: [], checks: [] },
+      { id: 'shopify', title: 'Shopify title from model', fields: [], checks: [] },
+    ],
+  },
+};
+
+// --------------------------------------------------------------------------- //
+// P0.6 / P0.7 — form behaviour                                                //
+// --------------------------------------------------------------------------- //
+
+test('P0.6 empty Generate does NOT insert demo data and shows validation', async ({ page }, testInfo) => {
+  await waitForStation(page);
+  await page.screenshot({ path: `${SHOTS}/${tag(testInfo)}-01-initial.png` });
+
+  const name = page.locator('input[placeholder="折叠硅胶水杯 350ml"]');
+  await expect(name).toHaveValue('');
+  await page.click('#station-generate');
+  await page.waitForTimeout(200);
+
+  await expect(name).toHaveValue(''); // not mutated
+  await expect(page.getByText('请填写品名')).toBeVisible();
+  await expect(name).toBeFocused();
+  await expect(page.locator('.NodeShape_station', { has: page.getByRole('button', { name: '复制标题' }) })).toHaveCount(0);
+});
+
+test('P0.6 only 填入演示 inserts demo content', async ({ page }) => {
+  await waitForStation(page);
+  const name = page.locator('input[placeholder="折叠硅胶水杯 350ml"]');
+  await expect(name).toHaveValue('');
+  await page.click('#station-fill');
+  await page.waitForTimeout(200);
+  await expect(name).not.toHaveValue('');
+});
+
+test('P0.7 zero platforms selected shows an inline message', async ({ page }) => {
+  await waitForStation(page);
+  await page.click('#station-fill');
+  await page.waitForTimeout(150);
+  for (const label of ['Amazon', 'TikTok Shop', 'Shopify']) {
+    const cb = page.locator('label', { hasText: label }).locator('input[type="checkbox"]');
+    if (await cb.isChecked()) await cb.uncheck();
+  }
+  await page.click('#station-generate');
+  await expect(page.getByText('请至少选择一个平台')).toBeVisible();
+});
+
+// --------------------------------------------------------------------------- //
+// P0.2 / P0.4 — source labelling + reaching the backend                       //
+// --------------------------------------------------------------------------- //
+
+test('P0.4 a valid same-origin POST reaches FastAPI; backend fallback shows an amber badge', async ({
+  page,
+}, testInfo) => {
+  await waitForStation(page);
+  await page.click('#station-fill');
+  await page.waitForTimeout(150);
+  const [resp] = await Promise.all([
+    page.waitForResponse(r => r.url().includes('/api/listing/generate'), { timeout: 20_000 }),
+    page.click('#station-generate'),
+  ]);
+  expect(resp.status()).toBe(200);
+  await expect(page.getByText('后端规则兜底')).toBeVisible({ timeout: 20_000 });
+  await page.waitForTimeout(700);
+  // default Agent state for this viewport (collapsed when width ≤ 1280, else open)
+  await page.screenshot({ path: `${SHOTS}/${tag(testInfo)}-02-after-generate-default.png` });
+});
+
+test('P0.2 backend source="llm" is shown as Token Plan (green)', async ({ page }) => {
+  await page.route('**/api/listing/generate', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(THREE_DRAFTS) }),
+  );
+  await waitForStation(page);
+  await page.click('#station-fill');
+  await page.click('#station-generate');
+  await expect(page.getByText('模型生成 · Token Plan')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('#station-local-sample-banner')).toHaveCount(0);
+});
+
+test('P0.2/P0.3 network failure is never shown as a successful generation', async ({ page }) => {
+  await page.route('**/api/listing/generate', route => route.abort('failed'));
+  await waitForStation(page);
+  await page.click('#station-fill');
+  await page.click('#station-generate');
+
+  await expect(page.getByText('无法连接后端服务，请检查网络后重试。')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('#station-use-local-sample')).toBeVisible();
+  await expect(page.getByText('模型生成 · Token Plan')).toHaveCount(0);
+  await expect(page.getByText('后端规则兜底')).toHaveCount(0);
+
+  await page.click('#station-use-local-sample');
+  await expect(page.locator('#station-local-sample-banner')).toBeVisible();
+  await expect(page.locator('#station-local-sample-banner')).toContainText('本地示例数据');
+});
+
+// --------------------------------------------------------------------------- //
+// P0.1 — real cancellation                                                    //
+// --------------------------------------------------------------------------- //
+
+test('P0.1 Cancel during a delayed listing request produces no results and no badge', async ({ page }) => {
+  let listingAborted = false;
+  page.on('requestfailed', req => {
+    if (req.url().includes('/api/listing/generate')) listingAborted = true;
+  });
+
+  await page.route('**/api/listing/generate', async route => {
+    await new Promise(r => setTimeout(r, 4000));
+    try {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(THREE_DRAFTS),
+      });
+    } catch {
+      /* client already aborted */
+    }
+  });
+
+  await waitForStation(page);
+  await page.click('#station-fill');
+  await page.click('#station-generate');
+
+  // run is in progress → button toggles to 取消
+  await expect(page.locator('#station-generate')).toHaveText('取消', { timeout: 5_000 });
+  await page.waitForTimeout(700);
+
+  // cancel
+  await page.click('#station-generate');
+
+  // wait well past the 4s response delay
+  await page.waitForTimeout(5_000);
+
+  expect(listingAborted).toBe(true); // the HTTP request was actually aborted
+  await expect(page.locator('#station-generate')).toHaveText('生成'); // back to idle
+  await expect(page.locator('.NodeShape_station', { has: page.getByRole('button', { name: '复制标题' }) })).toHaveCount(0);
+  await expect(page.getByText('模型生成 · Token Plan')).toHaveCount(0);
+  await expect(page.getByText('后端规则兜底')).toHaveCount(0);
+  await expect(page.locator('#station-local-sample-banner')).toHaveCount(0);
+  await expect(page.locator('#station-retry')).toHaveCount(0);
+  await expect(page.getByText('无法连接后端服务')).toHaveCount(0);
+
+  // a fresh Generate still works
+  await page.unroute('**/api/listing/generate');
+  await page.route('**/api/listing/generate', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(THREE_DRAFTS) }),
+  );
+  await page.click('#station-generate');
+  await expect(page.getByText('模型生成 · Token Plan')).toBeVisible({ timeout: 15_000 });
+});
+
+// --------------------------------------------------------------------------- //
+// P1.11 — default post-generation layout, no Agent overlap                    //
+// --------------------------------------------------------------------------- //
+
+test('P1.11 immediately after generation every result card is outside the Agent panel', async ({
+  page,
+}, testInfo) => {
+  await page.route('**/api/listing/generate', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(THREE_DRAFTS) }),
+  );
+  await waitForStation(page);
+  await ensureAgentOpen(page);
+
+  await page.click('#station-fill');
+  await page.click('#station-generate');
+  await expect(page.getByText('模型生成 · Token Plan')).toBeVisible({ timeout: 15_000 });
+  await page.waitForTimeout(700); // auto-frame settles — NO manual "查看全部结果" click
+
+  const vw = testInfo.project.use.viewport!.width;
+  const agentLeft = await agentLeftEdge(page, vw);
+
+  const cards = page.locator('.NodeShape_station', {
+    has: page.getByRole('button', { name: '复制标题' }),
+  });
+  const count = await cards.count();
+  expect(count).toBe(3);
+
+  for (let i = 0; i < count; i++) {
+    const box = await cards.nth(i).boundingBox();
+    expect(box, `card ${i} must be rendered`).not.toBeNull();
+    // complete bounding box, right edge must clear the Agent panel
+    expect(box!.x + box!.width, `card ${i} right edge (${Math.round(box!.x + box!.width)}) <= agent left (${Math.round(agentLeft)})`).toBeLessThanOrEqual(agentLeft + 1);
+    expect(box!.x, `card ${i} left edge on screen`).toBeGreaterThanOrEqual(-1);
+    expect(box!.width).toBeGreaterThan(180);
+  }
+  await page.screenshot({ path: `${SHOTS}/${tag(testInfo)}-03-after-generate-agent-open.png` });
+
+  // optional nav controls still work
+  await page.click('#station-focus-input');
+  await page.waitForTimeout(400);
+  await expect(page.locator('input[placeholder="折叠硅胶水杯 350ml"]')).toBeVisible();
+});
+
+// --------------------------------------------------------------------------- //
+// P0.4 — Agent unreachable: safe message + Retry                              //
+// --------------------------------------------------------------------------- //
+
+test('P0.4 Agent backend unreachable shows a safe Chinese message and Retry recovers', async ({ page }) => {
+  await waitForStation(page);
+  await ensureAgentOpen(page);
+
+  await page.route('**/api/agent/chat', route => route.abort('failed'));
+  const input = page.locator('aside[aria-label="Agent 对话"] textarea');
+  await input.fill('主图能加字吗');
+  await input.press('Enter');
+
+  await expect(page.getByText('无法连接后端服务，请检查网络后重试。')).toBeVisible({ timeout: 10_000 });
+  const retry = page.getByRole('button', { name: '重试' });
+  await expect(retry).toBeVisible();
+  await expect(page.locator('aside[aria-label="Agent 对话"]')).not.toContainText('Failed to fetch');
+
+  await page.unroute('**/api/agent/chat');
+  await retry.click();
+  // real backend, no TOKEN_PLAN key -> deterministic Chinese keyword fallback
+  await expect(page.locator('aside[aria-label="Agent 对话"]')).toContainText('白底', { timeout: 10_000 });
+});
+
+// --------------------------------------------------------------------------- //
+// P1.12 / P1.14 — rules from /api/rules                                       //
+// --------------------------------------------------------------------------- //
+
+test('P1.12/P1.14 rules come from /api/rules with a clickable official source', async ({ page }) => {
+  await waitForStation(page);
+  const [resp] = await Promise.all([
+    page.waitForResponse(r => r.url().includes('/api/rules'), { timeout: 15_000 }),
+    page.click('#station-rules'),
+  ]);
+  expect(resp.status()).toBe(200);
+  const dialog = page.locator('[role="dialog"][aria-modal="true"]');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('来自后端 /api/rules')).toBeVisible();
+  // Amazon row cites a specific official page, not a bare homepage
+  const amazonRow = dialog.locator('tr', { hasText: 'amazon.main-image' });
+  const amazonLink = amazonRow.locator('a[href*="amazon.com/"]').first();
+  await expect(amazonLink).toBeVisible();
+  const href = await amazonLink.getAttribute('href');
+  expect(href).toMatch(/^https:\/\/[a-z.]*amazon\.com\/.+/);
+  expect(href).not.toBe('https://sellercentral.amazon.com/');
+  expect(new URL(href!).pathname.replace(/\/$/, '').length).toBeGreaterThan(1);
+
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('#station-rules')).toBeFocused();
+});
+
+// --------------------------------------------------------------------------- //
+// P2.17 — copy feedback                                                       //
+// --------------------------------------------------------------------------- //
+
+test('P2.17 copy button shows success feedback', async ({ page }) => {
+  await page.route('**/api/listing/generate', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(THREE_DRAFTS) }),
+  );
+  await waitForStation(page);
+  await page.click('#station-fill');
+  await page.click('#station-generate');
+  await expect(page.getByText('模型生成 · Token Plan')).toBeVisible({ timeout: 15_000 });
+  const copyBtn = page.getByRole('button', { name: '复制标题' }).first();
+  await copyBtn.click();
+  await expect(page.getByRole('button', { name: '已复制标题' }).first()).toBeVisible();
+});

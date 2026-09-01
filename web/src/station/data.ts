@@ -50,29 +50,9 @@ export const EMPTY_HINT: Record<PlatformId, string[]> = {
   shopify: ['品牌标题', '长描述', '生活图（无强制白底）'],
 };
 
-export const RULE_ROWS = [
-  {
-    platform: 'Amazon',
-    role: '货架',
-    image: '纯白 RGB 255,255,255 · 主体约 85% · 主图禁加字',
-    source: 'Seller Central 主图规范',
-    date: '2026-08-25',
-  },
-  {
-    platform: 'TikTok Shop',
-    role: '货架（连着内容）',
-    image: '商品卡主图偏白底、无加字；≠ 信息流广告封面',
-    source: 'TikTok Shop 美国卖家大学 Listing',
-    date: '2026-08-25',
-  },
-  {
-    platform: 'Shopify',
-    role: '品牌站',
-    image: '无强制白底，生活图可用',
-    source: 'Shopify 商品媒体帮助',
-    date: '2026-08-25',
-  },
-];
+// The rules table is served by the backend (/api/rules, from api/rules.yaml).
+// A minimal offline fallback lives in station/rulesApi.ts and is shown only
+// when that endpoint is unreachable, clearly marked as not-current.
 
 const BPA_FIX: CheckItem = {
   id: 'bpa',

@@ -1,6 +1,12 @@
+import { ApiError, postJson } from './apiClient';
 import { buildDrafts, type AssetMode, type PlatformDraft, type PlatformId } from './data';
 
-export type ListingSource = 'upstream' | 'llm' | 'fallback';
+// What actually produced the drafts on screen. Persisted and shown on every
+// result screen — never a transient toast.
+export type ListingResultSource = 'token-plan' | 'api-fallback' | 'local-sample';
+
+// Raw `source` values the backend can report.
+type BackendSource = 'upstream' | 'llm' | 'fallback';
 
 export type ListingGenerateInput = {
   productName: string;
@@ -10,42 +16,51 @@ export type ListingGenerateInput = {
   uploads: string[];
 };
 
-const SOURCE_LABEL: Record<ListingSource, string> = {
-  upstream: '草稿来自后端 chat',
-  llm: '草稿来自本机 LLM',
-  fallback: '草稿来自规则表',
+export const LISTING_SOURCE_META: Record<
+  ListingResultSource,
+  { label: string; tone: 'ok' | 'warn' | 'danger'; detail: string }
+> = {
+  'token-plan': {
+    label: '模型生成 · Token Plan',
+    tone: 'ok',
+    detail: '内容由指定模型根据你的 SKU 生成。',
+  },
+  'api-fallback': {
+    label: '后端规则兜底',
+    tone: 'warn',
+    detail: '后端可达，但未配置模型或模型不可用，返回的是规则模板草稿，不是模型生成结果。',
+  },
+  'local-sample': {
+    label: '本地示例数据',
+    tone: 'danger',
+    detail: '后端服务不可用。当前展示的是内置示例数据，并非根据你的 SKU 生成。',
+  },
 };
 
-export function announceListingSource(source: ListingSource) {
+function mapBackendSource(source: BackendSource | undefined): ListingResultSource {
+  if (source === 'fallback') return 'api-fallback';
+  // 'llm' and 'upstream' are both real model-gateway output.
+  return 'token-plan';
+}
+
+const SOURCE_EVENT = 'station-listing-source';
+
+export function announceListingSource(source: ListingResultSource) {
   if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent('station-listing-source', { detail: { source, label: SOURCE_LABEL[source] } }));
+  window.dispatchEvent(
+    new CustomEvent(SOURCE_EVENT, {
+      detail: { source, label: LISTING_SOURCE_META[source].label },
+    }),
+  );
 }
 
-export function listingSourceLabel(source: ListingSource): string {
-  return SOURCE_LABEL[source];
-}
-
-async function postGenerate(url: string, payload: unknown, timeoutMs = 180000): Promise<Response | null> {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-  } catch {
-    return null;
-  } finally {
-    window.clearTimeout(timer);
-  }
-}
-
-function listingApiEndpoints(): string[] {
-  const remote = import.meta.env.VITE_LISTING_API?.trim();
-  if (remote) return [remote.replace(/\/$/, '') + '/api/listing/generate'];
-  return ['/api/listing/generate'];
+export function onListingSource(cb: (source: ListingResultSource) => void): () => void {
+  const handler = (event: Event) => {
+    const detail = (event as CustomEvent<{ source?: ListingResultSource }>).detail;
+    if (detail?.source) cb(detail.source);
+  };
+  window.addEventListener(SOURCE_EVENT, handler);
+  return () => window.removeEventListener(SOURCE_EVENT, handler);
 }
 
 const LANE: Record<PlatformId, Pick<PlatformDraft, 'name' | 'role' | 'imageLabel'>> = {
@@ -82,34 +97,59 @@ function normalizeDraft(raw: Partial<PlatformDraft>): PlatformDraft | null {
   };
 }
 
-export async function fetchListingDrafts(input: ListingGenerateInput): Promise<{ drafts: PlatformDraft[]; source: ListingSource }> {
-  const platforms = input.platforms.length ? input.platforms : (['amazon', 'tiktok', 'shopify'] as PlatformId[]);
-  try {
-    const payload = {
+export type ListingDraftsResult = {
+  drafts: PlatformDraft[];
+  source: ListingResultSource;
+};
+
+type ListingResponse = {
+  drafts?: Partial<PlatformDraft>[];
+  source?: BackendSource;
+};
+
+/**
+ * Call the backend. Resolves with real drafts + a source of `token-plan` or
+ * `api-fallback`. Rejects with an `ApiError` when the backend is unreachable,
+ * times out, or returns an unusable body. It never silently substitutes local
+ * sample data — the caller decides what to do with a failure.
+ */
+export async function fetchListingDrafts(
+  input: ListingGenerateInput,
+  opts: { timeoutMs?: number; signal?: AbortSignal } = {},
+): Promise<ListingDraftsResult> {
+  const platforms = input.platforms.length
+    ? input.platforms
+    : (['amazon', 'tiktok', 'shopify'] as PlatformId[]);
+
+  const data = await postJson<ListingResponse>(
+    '/api/listing/generate',
+    {
       product_name: input.productName,
       points: input.points,
       platforms,
       asset_mode: input.assetMode,
       uploads: input.uploads,
-    };
-    let res: Response | null = null;
-    for (const url of listingApiEndpoints()) {
-      const next = await postGenerate(url, payload);
-      if (next?.ok) {
-        res = next;
-        break;
-      }
-    }
-    if (!res || !res.ok) throw new Error(`listing-api ${res?.status ?? 'unreachable'}`);
-    const json = (await res.json()) as {
-      code?: number;
-      data?: { drafts?: Partial<PlatformDraft>[]; source?: ListingSource };
-    };
-    const drafts = (json.data?.drafts ?? []).map(normalizeDraft).filter((d): d is PlatformDraft => !!d);
-    if (json.code !== 0 || drafts.length === 0) throw new Error('listing-api empty');
-    return { drafts: drafts.filter(d => platforms.includes(d.id)), source: json.data?.source ?? 'fallback' };
-  } catch (err) {
-    console.warn('[station] listing-api unreachable, local drafts', err);
-    return { drafts: buildDrafts(input.assetMode).filter(d => platforms.includes(d.id)), source: 'fallback' };
-  }
+    },
+    { timeoutMs: opts.timeoutMs ?? 60_000, signal: opts.signal },
+  );
+
+  const drafts = (data.drafts ?? [])
+    .map(normalizeDraft)
+    .filter((d): d is PlatformDraft => !!d)
+    .filter(d => platforms.includes(d.id));
+
+  if (drafts.length === 0) throw new ApiError('bad-response');
+
+  return { drafts, source: mapBackendSource(data.source) };
+}
+
+/** Explicit local sample data — only used behind a visible user action. */
+export function localSampleDrafts(input: ListingGenerateInput): ListingDraftsResult {
+  const platforms = input.platforms.length
+    ? input.platforms
+    : (['amazon', 'tiktok', 'shopify'] as PlatformId[]);
+  return {
+    drafts: buildDrafts(input.assetMode).filter(d => platforms.includes(d.id)),
+    source: 'local-sample',
+  };
 }

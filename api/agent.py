@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from generate import LLM_BASE, LLM_KEY, LLM_MODEL, _chat_completions
+import token_plan
 
 SYSTEM = """你是「跨境上架编译器」的助手。
 工位只做上架前检查，不自动上架、不担保过审、不登广告账户。
@@ -36,20 +36,13 @@ async def agent_reply(messages: list[dict[str, Any]]) -> str:
             cleaned.append({"role": role, "content": content})
     if not cleaned:
         return "直接问上新规则，或把提示词贴过来。"
-    if not LLM_BASE or not LLM_KEY:
-        return fallback_reply(cleaned[-1]["content"])
     try:
-        url = LLM_BASE if LLM_BASE.endswith("/chat/completions") else f"{LLM_BASE}/chat/completions"
-        return await _chat_completions(
-            url,
-            {"Content-Type": "application/json", "Authorization": f"Bearer {LLM_KEY}"},
-            {
-                "model": LLM_MODEL,
-                "stream": False,
-                "messages": [{"role": "system", "content": SYSTEM}, *cleaned],
-            },
-            40.0,
+        return await token_plan.chat_completion(
+            [{"role": "system", "content": SYSTEM}, *cleaned],
+            model=token_plan.agent_model(),
         )
     except Exception as exc:
-        print(f"[agent] llm skipped: {type(exc).__name__}: {exc!r}", flush=True)
+        # token_plan raises a sanitized TokenPlanError (category / status /
+        # request id only); a missing key lands here too and falls back.
+        print(f"[agent] chat skipped: {type(exc).__name__}: {exc!r}", flush=True)
         return fallback_reply(cleaned[-1]["content"])

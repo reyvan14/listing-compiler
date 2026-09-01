@@ -1,24 +1,19 @@
-"""Try upstream chat, then a local OpenAI-compatible LLM, then fallback drafts."""
+"""Try upstream chat, then the Token Plan OpenAI-compatible LLM, then fallback drafts."""
 
 from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 from typing import Any
 
 import httpx
 
+import token_plan
 from checker import apply_checks
 from drafts import fallback_drafts
 from envutil import upstream, upstream_user
 from images import generate_station_images
-
-
-LLM_BASE = os.environ.get("LISTING_LLM_BASE_URL", "").rstrip("/")
-LLM_KEY = os.environ.get("LISTING_LLM_API_KEY", "")
-LLM_MODEL = os.environ.get("LISTING_LLM_MODEL", "qwen-plus")
 
 
 def listing_prompt(product_name: str, points: str, platforms: list[str]) -> str:
@@ -104,26 +99,31 @@ async def try_upstream(product_name: str, points: str, platforms: list[str], ass
 
 
 async def try_llm(product_name: str, points: str, platforms: list[str], asset_mode: str) -> list[dict[str, Any]]:
-    if not LLM_BASE or not LLM_KEY:
-        raise ValueError("LISTING_LLM_BASE_URL / LISTING_LLM_API_KEY not set")
-    url = LLM_BASE if LLM_BASE.endswith("/chat/completions") else f"{LLM_BASE}/chat/completions"
-    content = await _chat_completions(
-        url,
-        {"Content-Type": "application/json", "Authorization": f"Bearer {LLM_KEY}"},
-        {
-            "model": LLM_MODEL,
-            "stream": False,
-            "messages": [{"role": "user", "content": listing_prompt(product_name, points, platforms)}],
-        },
-        40.0,
+    """Second tier: the Token Plan OpenAI-compatible chat-completions API.
+
+    Config (key / base url / model) is resolved inside ``token_plan``. Raises on
+    a missing key, transport failure, HTTP error, or an unparseable response;
+    the caller catches it and drops to ``fallback_drafts``.
+    """
+    content = await token_plan.chat_completion(
+        [{"role": "user", "content": listing_prompt(product_name, points, platforms)}],
+        model=token_plan.text_model(),
     )
-    return _normalize_drafts(
-        _extract_json(content),
-        product_name=product_name,
-        points=points,
-        asset_mode=asset_mode,
-        platforms=platforms,
-    )
+    try:
+        payload = _extract_json(content)
+        return _normalize_drafts(
+            payload,
+            product_name=product_name,
+            points=points,
+            asset_mode=asset_mode,
+            platforms=platforms,
+        )
+    except Exception as exc:
+        # Never let raw model output reach logs via a chained exception repr
+        # (e.g. json.JSONDecodeError carries the full document in .args).
+        raise RuntimeError(
+            f"token plan response could not be parsed into drafts ({type(exc).__name__})"
+        ) from None
 
 
 async def _text_drafts(
@@ -142,7 +142,7 @@ async def _text_drafts(
     try:
         return await try_llm(product_name, points, platforms, asset_mode), "llm"
     except Exception as exc:
-        print(f"[listing] llm skipped: {type(exc).__name__}: {exc!r}", flush=True)
+        print(f"[listing] token-plan skipped: {type(exc).__name__}: {exc!r}", flush=True)
     return fallback_drafts(product_name, points, asset_mode, platforms), "fallback"
 
 

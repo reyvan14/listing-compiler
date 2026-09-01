@@ -574,3 +574,75 @@
     animation: none;
   }
 }
+
+/* ---- P0/P1 usability additions ---- */
+
+.sourceBadge {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.sourceBadge[data-tone='ok'] {
+  color: #7ddb8a;
+  background: rgba(76, 175, 80, 0.16);
+  border-color: rgba(76, 175, 80, 0.4);
+}
+
+.sourceBadge[data-tone='warn'] {
+  color: #ffce7a;
+  background: rgba(255, 194, 73, 0.16);
+  border-color: rgba(255, 194, 73, 0.45);
+}
+
+.sourceBadge[data-tone='danger'] {
+  color: #ff9c7a;
+  background: rgba(255, 118, 73, 0.18);
+  border-color: rgba(255, 118, 73, 0.5);
+}
+
+.sampleBanner {
+  position: relative;
+  z-index: 21;
+  margin: 0;
+  padding: 10px 14px;
+  background: rgba(220, 53, 47, 0.22);
+  border-top: 2px solid #dc352f;
+  border-bottom: 2px solid #dc352f;
+  color: #ffd7cf;
+  font-size: 13px;
+  line-height: 1.5;
+
+  strong {
+    color: #ffb3a6;
+  }
+}
+
+.rulesNote {
+  margin: 4px 0 10px;
+  color: #a8a49b;
+  font-size: 12px;
+
+  code {
+    color: #e1ded8;
+  }
+}
+
+.rulesError {
+  margin: 4px 0 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(255, 118, 73, 0.16);
+  color: #ff9c7a;
+  font-size: 12px;
+}
+
+.drawer a {
+  color: #26bbff;
+  text-decoration: underline;
+}

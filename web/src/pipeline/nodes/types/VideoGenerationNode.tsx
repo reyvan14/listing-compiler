@@ -1,4 +1,5 @@
 import { fetchMediaVideo } from '@/station/mediaApi'
+import { toSafeMessage } from '@/station/apiClient'
 import { T, useEditor, useValue } from 'tldraw'
 import { VideoGenerateIcon } from '../../components/icons/VideoGenerateIcon'
 import { executionState, startExecution, stopExecution } from '../../execution/executionState'
@@ -126,12 +127,11 @@ export class VideoGenerationNodeDefinition extends NodeDefinition<VideoGeneratio
       }))
       return { output: url }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '生成失败'
       updateNode<VideoGenerationNode>(this.editor, shape, n => ({
         ...n,
         videoUrls: [],
         posterUrls: [],
-        lastResult: `生成失败：${msg}`,
+        lastResult: toSafeMessage(err),
       }))
       return { output: null }
     }

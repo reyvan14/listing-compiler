@@ -303,3 +303,62 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* ---- collapsible Agent + error/retry ---- */
+
+.agentCollapsed {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 8px;
+
+  button {
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid #322f26;
+    border-right: 0;
+    border-radius: 6px 0 0 6px;
+    background: #26231c;
+    color: #e1ded8;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  button:hover {
+    background: #322f26;
+  }
+}
+
+.agentHeadBtns {
+  display: flex;
+  gap: 2px;
+}
+
+.botError {
+  max-width: 92%;
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  background: rgba(255, 118, 73, 0.14);
+  color: #ff9c7a;
+  border: 1px solid rgba(255, 118, 73, 0.4);
+}
+
+.agentRetry {
+  height: 28px;
+  padding: 0 12px;
+  margin-bottom: 10px;
+  border: 1px solid #6f6855;
+  border-radius: 6px;
+  background: #1f1d18;
+  color: #ffce7a;
+  font-size: 12px;
+  cursor: pointer;
+}

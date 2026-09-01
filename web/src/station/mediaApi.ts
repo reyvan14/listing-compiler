@@ -1,61 +1,49 @@
-const TIMEOUT_MS = 180000
+import { postJson, type PostJsonOptions } from './apiClient';
+
+// Media (image / video) generation calls. Same base-URL resolution and error
+// handling as the listing and agent calls — see apiClient.ts. Callers get an
+// `ApiError` (safe Chinese message, stable category) on any failure.
 
 export type MediaImageInput = {
-  prompt: string
-  aspectRatio: string
-  resolution: string
-}
+  prompt: string;
+  aspectRatio: string;
+  resolution: string;
+};
 
 export type MediaVideoInput = {
-  prompt: string
-  aspectRatio: string
-  duration: string
-  resolution: string
+  prompt: string;
+  aspectRatio: string;
+  duration: string;
+  resolution: string;
+};
+
+export async function fetchMediaImage(
+  input: MediaImageInput,
+  opts: PostJsonOptions = {},
+): Promise<{ url: string }> {
+  return postJson<{ url: string }>(
+    '/api/media/image',
+    {
+      prompt: input.prompt,
+      aspect_ratio: input.aspectRatio,
+      resolution: input.resolution,
+    },
+    { timeoutMs: 120_000, ...opts },
+  );
 }
 
-function mediaUrl(path: string): string {
-  const remote = import.meta.env.VITE_LISTING_API?.trim()
-  if (remote) return remote.replace(/\/$/, '') + path
-  return path
-}
-
-async function postJson<T>(path: string, payload: unknown): Promise<T> {
-  const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), TIMEOUT_MS)
-  try {
-    const res = await fetch(mediaUrl(path), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    })
-    const json = (await res.json().catch(() => null)) as {
-      code?: number
-      message?: string
-      data?: T
-    } | null
-    if (!res.ok || !json || json.code !== 0 || !json.data) {
-      throw new Error(json?.message || `media-api ${res.status}`)
-    }
-    return json.data
-  } finally {
-    window.clearTimeout(timer)
-  }
-}
-
-export async function fetchMediaImage(input: MediaImageInput): Promise<{ url: string }> {
-  return postJson<{ url: string }>('/api/media/image', {
-    prompt: input.prompt,
-    aspect_ratio: input.aspectRatio,
-    resolution: input.resolution,
-  })
-}
-
-export async function fetchMediaVideo(input: MediaVideoInput): Promise<{ url: string; poster?: string }> {
-  return postJson<{ url: string; poster?: string }>('/api/media/video', {
-    prompt: input.prompt,
-    aspect_ratio: input.aspectRatio,
-    duration: input.duration,
-    resolution: input.resolution,
-  })
+export async function fetchMediaVideo(
+  input: MediaVideoInput,
+  opts: PostJsonOptions = {},
+): Promise<{ url: string; poster?: string }> {
+  return postJson<{ url: string; poster?: string }>(
+    '/api/media/video',
+    {
+      prompt: input.prompt,
+      aspect_ratio: input.aspectRatio,
+      duration: input.duration,
+      resolution: input.resolution,
+    },
+    { timeoutMs: 180_000, ...opts },
+  );
 }

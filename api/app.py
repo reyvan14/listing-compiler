@@ -6,13 +6,14 @@ from typing import Literal
 import yaml
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from agent import agent_reply
 from generate import generate_drafts
 from media import generate_media_image, generate_media_video
+from media_errors import MediaError
 
 ROOT = Path(__file__).resolve().parent
 DIST = ROOT.parent / "web" / "dist"
@@ -78,12 +79,29 @@ class MediaVideoBody(BaseModel):
     resolution: str = "720p"
 
 
+def _media_error_response(exc: MediaError) -> JSONResponse:
+    # code stays 1 for backward compatibility; `error` is the stable slug.
+    return JSONResponse(
+        status_code=exc.http_status,
+        content={"code": 1, "error": exc.code, "message": exc.safe_message},
+    )
+
+
+def _media_unknown_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=502,
+        content={"code": 1, "error": "provider_failure", "message": "模型服务暂时不可用，请稍后重试。"},
+    )
+
+
 @app.post("/api/media/image")
 async def media_image(body: MediaImageBody):
     try:
         url = await generate_media_image(body.prompt, body.aspect_ratio)
-    except ValueError as exc:
-        return {"code": 1, "message": str(exc)}
+    except MediaError as exc:
+        return _media_error_response(exc)
+    except ValueError:
+        return _media_unknown_response()
     return {"code": 0, "data": {"url": url}}
 
 
@@ -91,8 +109,10 @@ async def media_image(body: MediaImageBody):
 async def media_video(body: MediaVideoBody):
     try:
         url = await generate_media_video(body.prompt, body.aspect_ratio, body.duration)
-    except ValueError as exc:
-        return {"code": 1, "message": str(exc)}
+    except MediaError as exc:
+        return _media_error_response(exc)
+    except ValueError:
+        return _media_unknown_response()
     return {"code": 0, "data": {"url": url}}
 
 
