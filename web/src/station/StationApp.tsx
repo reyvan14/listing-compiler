@@ -184,10 +184,12 @@ export function StationApp() {
       } catch {
         /* ignore */
       }
-      if (editor) requestAnimationFrame(() => frameStation(editor));
+      // The Agent is an absolute overlay and does not resize the tldraw
+      // viewport. Reframing here changed the camera, which made the canvas
+      // appear to jump whenever the panel was toggled.
       return next;
     });
-  }, [editor]);
+  }, []);
 
   const withSku = (fn: (editor: Editor) => void) => {
     const ed = (window as unknown as { editor?: Editor }).editor;

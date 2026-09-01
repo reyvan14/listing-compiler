@@ -9,7 +9,12 @@ import type { ImageGenerationNode } from './ImageGenerationNode'
 import type { VideoGenerationNode } from './VideoGenerationNode'
 
 export const IMAGE_NODE_WIDTH_PX = 432
-export const IMAGE_BOX_AREA_PX = 348
+export const IMAGE_PREVIEW_HORIZONTAL_INSET_PX = 24
+export const IMAGE_PREVIEW_WIDTH_PX = IMAGE_NODE_WIDTH_PX - IMAGE_PREVIEW_HORIZONTAL_INSET_PX
+// imageBox margins (4px top + 12px bottom) plus prompt/form chrome.
+// Keep this in step with mediaForm.module.scss so the tldraw geometry and DOM
+// have the same height and connection endpoints land on the visible ports.
+export const IMAGE_FORM_CHROME_PX = 140
 export const VIDEO_NODE_WIDTH_PX = 280
 export const VIDEO_BOX_AREA_PX = 320
 export const RESULT_NODE_WIDTH_PX = 320
@@ -39,6 +44,11 @@ export function resultBoxSizePx(aspectRatio: string): { w: number; h: number } {
     return { w: RESULT_BOX_SHORT_PX, h: Math.round((RESULT_BOX_SHORT_PX * rh) / rw) }
   }
   return { w: Math.round((RESULT_BOX_SHORT_PX * rw) / rh), h: RESULT_BOX_SHORT_PX }
+}
+
+export function imagePreviewHeightPx(aspectRatio: string): number {
+  const { w, h } = parseAspect(aspectRatio)
+  return Math.round((IMAGE_PREVIEW_WIDTH_PX * h) / w)
 }
 
 export function defaultImageNode(): ImageGenerationNode {
@@ -184,7 +194,7 @@ export function ensureMediaNodes(editor: Editor) {
 
 export function imageBodyHeightPx(node: ImageGenerationNode): number {
   if (node.isResultNode) return resultBoxSizePx(node.aspectRatio).h
-  return IMAGE_BOX_AREA_PX
+  return imagePreviewHeightPx(node.aspectRatio) + IMAGE_FORM_CHROME_PX
 }
 
 export function videoBodyHeightPx(node: VideoGenerationNode): number {

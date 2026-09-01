@@ -294,3 +294,118 @@ test('P2.17 copy button shows success feedback', async ({ page }) => {
   await copyBtn.click();
   await expect(page.getByRole('button', { name: '已复制标题' }).first()).toBeVisible();
 });
+
+// --------------------------------------------------------------------------- //
+// Media interaction regressions                                               //
+// --------------------------------------------------------------------------- //
+
+async function addImageNode(page: Page) {
+  await page.getByTitle('添加节点').click();
+  await page.getByRole('button', { name: '图片', exact: true }).click();
+  const node = page.locator('.NodeShape_image_generation').last();
+  await expect(node).toBeVisible();
+  await page.waitForTimeout(300);
+  return node;
+}
+
+test('media port DOM center matches the tldraw connection coordinate', async ({ page }) => {
+  await waitForStation(page);
+  const node = await addImageNode(page);
+  const delta = await node.evaluate(element => {
+    const port = element.querySelector<HTMLElement>('.NodeShape-sidePorts .Port_end');
+    const editor = (window as unknown as { editor: { getCamera: () => { z: number } } }).editor;
+    if (!port) throw new Error('image input port missing');
+    const nodeBox = element.getBoundingClientRect();
+    const portBox = port.getBoundingClientRect();
+    const modelY = Number.parseFloat(getComputedStyle(port).getPropertyValue('--port-y'));
+    const expectedScreenY = nodeBox.top + modelY * editor.getCamera().z;
+    const visibleScreenY = portBox.top + portBox.height / 2;
+    return Math.abs(expectedScreenY - visibleScreenY);
+  });
+  expect(delta).toBeLessThanOrEqual(1.5);
+});
+
+test('image preview follows the selected ratio and never crops the asset', async ({ page }) => {
+  await waitForStation(page);
+  const node = await addImageNode(page);
+  const box = node.locator('.ImageGenNode-imageBox');
+
+  const square = await box.boundingBox();
+  expect(square).not.toBeNull();
+  expect(Math.abs(square!.width / square!.height - 1)).toBeLessThan(0.02);
+
+  await node.getByRole('button', { name: '16:9', exact: true }).click();
+  await page.waitForTimeout(150);
+  const wide = await box.boundingBox();
+  expect(wide).not.toBeNull();
+  expect(Math.abs(wide!.width / wide!.height - 16 / 9)).toBeLessThan(0.03);
+
+  const dataUrl =
+    'data:image/svg+xml;charset=utf-8,' +
+    encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect width="1600" height="900" fill="%23d8a63f"/></svg>');
+  await page.evaluate(src => {
+    const editor = (window as unknown as {
+      editor: {
+        getCurrentPageShapes: () => Array<any>;
+        updateShape: (update: any) => void;
+      };
+    }).editor;
+    const shape = editor
+      .getCurrentPageShapes()
+      .find(item => item.type === 'node' && item.props.node.type === 'image_generation');
+    editor.updateShape({
+      id: shape.id,
+      type: shape.type,
+      props: { node: { ...shape.props.node, imageUrls: [src], lastResult: '已生成 1 张图片' } },
+    });
+  }, dataUrl);
+  const image = node.locator('img[alt="generated"]');
+  await expect(image).toBeVisible();
+  expect(await image.evaluate(element => getComputedStyle(element).objectFit)).toBe('contain');
+});
+
+test('double-clicking a generated image opens and closes the lightbox', async ({ page }) => {
+  await waitForStation(page);
+  const node = await addImageNode(page);
+  const dataUrl =
+    'data:image/svg+xml;charset=utf-8,' +
+    encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800"><rect width="800" height="800" fill="%234b7bec"/></svg>');
+  await page.evaluate(src => {
+    const editor = (window as unknown as {
+      editor: { getCurrentPageShapes: () => Array<any>; updateShape: (update: any) => void };
+    }).editor;
+    const shape = editor
+      .getCurrentPageShapes()
+      .find(item => item.type === 'node' && item.props.node.type === 'image_generation');
+    editor.updateShape({
+      id: shape.id,
+      type: shape.type,
+      props: { node: { ...shape.props.node, imageUrls: [src], lastResult: '已生成 1 张图片' } },
+    });
+  }, dataUrl);
+
+  await node.locator('img[alt="generated"]').dblclick();
+  const lightbox = page.getByTestId('image-lightbox');
+  await expect(lightbox).toBeVisible();
+  await expect(lightbox.locator('img[alt="生成图片大图预览"]')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(lightbox).toHaveCount(0);
+});
+
+test('collapsing and expanding Agent preserves the canvas camera', async ({ page }) => {
+  await waitForStation(page);
+  await ensureAgentOpen(page);
+  const camera = () =>
+    page.evaluate(() =>
+      (window as unknown as { editor: { getCamera: () => { x: number; y: number; z: number } } }).editor.getCamera(),
+    );
+
+  const before = await camera();
+  await page.getByRole('button', { name: '收起 Agent 面板' }).click();
+  await page.waitForTimeout(350);
+  expect(await camera()).toEqual(before);
+
+  await page.getByRole('button', { name: '展开 Agent 面板' }).click();
+  await page.waitForTimeout(350);
+  expect(await camera()).toEqual(before);
+});
