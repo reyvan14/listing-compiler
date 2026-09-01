@@ -1,0 +1,3272 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+@import url('tldraw/tldraw.css');
+
+body {
+  font-family: 'Inter', sans-serif;
+  overscroll-behavior: none;
+}
+
+.tl-container {
+  --node-shadows: 0 2px 6px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --node-shadow-border:
+    0 0 0 1px rgba(0, 0, 0, 0.06), 0 2px 6px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --node-shadow-highlight:
+    0 0 0 calc(1.2px / var(--tl-zoom)) var(--tl-color-selected), 0 2px 6px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.04);
+
+  /* Port type colors as CSS custom properties */
+  --port-color-image: #c060e0;
+  --port-color-text: #4caf50;
+  --port-color-model: #2196f3;
+  --port-color-number: #9e9e9e;
+  --port-color-latent: #ff9800;
+  --port-color-any: #b0b0b0;
+}
+
+.tl-container.station-tldraw {
+  --tl-color-background: #191816;
+  --tl-color-grid: #423f35;
+  --tl-color-low: #1f1d18;
+  --tl-color-low-border: #322f26;
+  --tl-color-muted-0: rgba(255, 253, 250, 0.04);
+  --tl-color-muted-1: rgba(255, 253, 250, 0.1);
+  --tl-color-muted-2: rgba(255, 253, 250, 0.07);
+  --tl-color-hint: rgba(255, 253, 250, 0.1);
+  --tl-color-divider: #423f35;
+  --tl-color-panel: #26231c;
+  --tl-color-panel-contrast: #322f26;
+  --tl-color-panel-overlay: rgba(38, 35, 28, 0.92);
+  --tl-color-selected: #26bbff;
+  --tl-color-selected-contrast: #191816;
+  --tl-color-text: #fffdfa;
+  --tl-color-text-0: #fffdfa;
+  --tl-color-text-1: #e1ded8;
+  --tl-color-text-3: #a8a49b;
+  --node-shadows: 0 8px 18px rgba(0, 0, 0, 0.32);
+  --node-shadow-border: 0 0 0 1px rgba(83, 79, 70, 0.72), 0 12px 28px rgba(0, 0, 0, 0.34);
+  --node-shadow-highlight:
+    0 0 0 calc(1.2px / var(--tl-zoom)) #26bbff, 0 12px 28px rgba(0, 0, 0, 0.34);
+  background: #191816;
+}
+
+.tl-container .tl-theme__light {
+  --tl-color-handle-fill: hsla(210, 100%, 56%, 0.24);
+}
+.tl-container .tl-theme__dark {
+  --tl-color-handle-fill: hsla(209, 100%, 57%, 0.2);
+}
+
+/* ---- Node shape ---- */
+
+.NodeShape {
+  border-radius: var(--tl-radius-3);
+  background: var(--tl-color-panel);
+  box-shadow: var(--node-shadow-border);
+  width: 100%;
+  height: fit-content;
+  display: flex;
+  flex-direction: column;
+
+  .NodeShape-heading {
+    padding: 0 var(--tl-space-4);
+    margin-bottom: var(--tl-space-3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--tl-space-3);
+    height: 40px;
+    border-bottom: 1px solid var(--tl-color-divider);
+  }
+
+  .NodeShape-icon {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    color: var(--tl-color-text-3);
+  }
+
+  .NodeShape-label {
+    flex: 1 1 auto;
+    font-weight: 500;
+    font-size: 13px;
+  }
+
+  .NodeShape-output {
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    color: var(--tl-color-text-3);
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Enable pointer events on the entire node body so all interactive
+	   elements work. The heading stays inert (drag handle for tldraw).
+	   .NodeShape-sidePorts 必须排除：它 top:40px;bottom:0 罩住整个 body，若被这条规则置为
+	   pointer-events:all 会拦截 body 内容（如视频封面）的点击。容器保持 none 让点击穿透，
+	   其内部 .Port 自身仍是 pointer-events:all，连线不受影响。 */
+  [data-state='select.idle'] & > :not(.NodeShape-heading):not(.NodeShape-sidePorts) {
+    pointer-events: all;
+  }
+
+  &.NodeShape_station {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  &.NodeShape_station .NodeShape-heading {
+    justify-content: flex-start;
+    cursor: grab;
+  }
+
+  &.NodeShape_station .NodeShape-icon {
+    height: 16px;
+  }
+
+  [data-state='select.idle'] &.NodeShape_station > :not(.NodeShape-heading):not(.NodeShape-sidePorts) {
+    pointer-events: none;
+  }
+
+  [data-state='select.idle'] &.NodeShape_station input,
+  [data-state='select.idle'] &.NodeShape_station textarea,
+  [data-state='select.idle'] &.NodeShape_station button,
+  [data-state='select.idle'] &.NodeShape_station select,
+  [data-state='select.idle'] &.NodeShape_station label,
+  [data-state='select.idle'] &.NodeShape_station .Port {
+    pointer-events: all;
+  }
+
+  .NodeShape-footer {
+    display: flex;
+    align-items: center;
+    gap: var(--tl-space-2);
+    height: 40px;
+    padding: 0 var(--tl-space-1) 0 var(--tl-space-4);
+    border-top: 1px solid var(--tl-color-divider);
+    margin-top: var(--tl-space-3);
+  }
+
+  .NodeShape-footer-action {
+    display: flex;
+    align-items: center;
+    gap: var(--tl-space-2);
+    border: none;
+    background: none;
+    padding: 2px 6px;
+    margin: 0 -6px;
+    border-radius: var(--tl-radius-2);
+    font: inherit;
+    font-size: 11px;
+    color: var(--tl-color-text-3);
+    cursor: pointer;
+
+    svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    &:hover {
+      background: var(--tl-color-muted-0);
+      color: var(--tl-color-text-1);
+    }
+
+    &.NodeShape-footer-action_executing {
+      color: var(--tl-color-selected);
+    }
+  }
+
+  .NodeFooterMenu {
+    margin-left: auto;
+  }
+
+  .NodeFooterMenu-trigger {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    color: var(--tl-color-text-3);
+  }
+
+  &.NodeShape_executing {
+    box-shadow:
+      0 0 0 calc(2px / var(--tl-zoom)) var(--tl-color-selected),
+      0 2px 6px rgba(0, 0, 0, 0.08),
+      0 1px 2px rgba(0, 0, 0, 0.04);
+  }
+}
+
+/* ---- Capture node ---- */
+
+.NodeShape_capture {
+  background: transparent;
+  box-shadow: none;
+  border: 2px dashed rgba(128, 128, 128, 0.4);
+}
+
+.NodeShape_capture .NodeShape-heading {
+  background: var(--tl-color-panel-overlay);
+  border-radius: var(--tl-radius-3) var(--tl-radius-3) 0 0;
+}
+
+.NodeShape_capture .NodeShape-footer {
+  background: var(--tl-color-panel-overlay);
+  border-radius: 0 0 var(--tl-radius-3) var(--tl-radius-3);
+}
+
+/* ---- 媒体生成节点（图片/视频）: 节点框边框 + header 分隔线 ---- */
+/* 图片节点：维持原 #A8A49B 描边（#40 重做了图片节点，本轮不改其样式）。 */
+.NodeShape_image_generation {
+  box-shadow:
+    var(--node-shadow-border),
+    inset 0 0 0 1px #a8a49b;
+}
+/* 视频节点：默认素描边 #534F46，选中高亮 #A8A49B（不画 tldraw 蓝框，靠此描边作选中反馈）。 */
+.NodeShape_video_generation {
+  box-shadow:
+    var(--node-shadow-border),
+    inset 0 0 0 1px #534f46;
+}
+.NodeShape_selected.NodeShape_video_generation {
+  box-shadow:
+    var(--node-shadow-border),
+    inset 0 0 0 1px #a8a49b;
+}
+
+.NodeShape_image_generation .NodeShape-heading,
+.NodeShape_video_generation .NodeShape-heading {
+  border-bottom-color: #322f26;
+}
+
+/* 视频节点标题：默认素色(text-3)，选中高亮(text)。图片节点维持默认。 */
+.NodeShape_video_generation .NodeShape-label {
+  color: var(--tl-color-text-3);
+}
+.NodeShape_selected .NodeShape-label {
+  color: var(--tl-color-text);
+}
+
+/* ---- Node rows ---- */
+
+.NodeRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  height: 44px;
+  gap: var(--tl-space-3);
+  padding: var(--tl-space-2) var(--tl-space-4);
+  position: relative;
+
+  input[type='text'],
+  select {
+    align-self: stretch;
+    flex: 1 1 auto;
+    border: 1px solid var(--tl-color-hint);
+    padding: 0 var(--tl-space-4);
+    border-radius: var(--tl-radius-3);
+    background: none;
+    color: var(--tl-color-text-1);
+    font: inherit;
+    font-size: 12px;
+    outline: none;
+
+    &:focus {
+      border-color: var(--tl-color-selected);
+    }
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+  }
+
+  input[type='range'] {
+    flex: 1 1 auto;
+    accent-color: var(--tl-color-selected);
+  }
+
+  select {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg width='30' height='30' viewBox='0 0 30 30' fill='none' xmlns='http://www.w3.org/2000/svg'><path fill-rule='evenodd' clip-rule='evenodd' d='M6.27047 12.3161C6.6482 11.9131 7.28103 11.8927 7.68394 12.2705L15 19.1293L22.3161 12.2705C22.719 11.8927 23.3518 11.9131 23.7295 12.3161C24.1073 12.719 24.0869 13.3518 23.6839 13.7295L15.6839 21.2295C15.2993 21.5902 14.7007 21.5902 14.3161 21.2295L6.31606 13.7295C5.91315 13.3518 5.89274 12.719 6.27047 12.3161Z' fill='black'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right var(--tl-space-4) center;
+    background-size: 16px;
+  }
+
+  textarea {
+    flex: 1 1 auto;
+    border: 1px solid var(--tl-color-hint);
+    padding: var(--tl-space-3) var(--tl-space-4);
+    border-radius: var(--tl-radius-3);
+    background: none;
+    color: var(--tl-color-text-1);
+    font: inherit;
+    font-size: 12px;
+    outline: none;
+    resize: none;
+
+    &:focus {
+      border-color: var(--tl-color-selected);
+    }
+  }
+}
+
+.NodeInputRow {
+  .NodeInputRow-label {
+    font-size: 11px;
+    color: var(--tl-color-text-3);
+    flex: 0 0 auto;
+    min-width: 48px;
+  }
+
+  .NodeInputRow-buttons {
+    display: none;
+    position: absolute;
+    right: 19px;
+
+    button {
+      margin-right: -8px;
+      min-width: 38px;
+      height: 38px;
+    }
+  }
+
+  &:has(input[type='text']:not(:disabled)) {
+    &:hover,
+    &:has(input:focus) {
+      .NodeInputRow-buttons {
+        display: flex;
+      }
+    }
+  }
+}
+
+.NodeRow-connected-value {
+  font-size: 11px;
+  color: var(--tl-color-text-3);
+  flex: 1 1 auto;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.NodeRow-disconnected {
+  font-size: 11px;
+  color: var(--tl-color-text-3);
+  opacity: 0.5;
+  flex: 1 1 auto;
+  text-align: right;
+  font-style: italic;
+}
+
+.NodeRow-value {
+  font-size: 11px;
+  color: var(--tl-color-text-3);
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+  min-width: 32px;
+  text-align: right;
+}
+
+.NodePortLabel {
+  font-size: 11px;
+  font-weight: 500;
+  flex: 0 0 auto;
+}
+
+.NodeValue_placeholder {
+  display: inline-block;
+  width: 18px;
+  height: 10px;
+  border-radius: 10px;
+  background: hsl(0, 0%, 0%, 10%);
+}
+
+/* ---- Image previews ---- */
+
+.NodeImagePreview {
+  margin: var(--tl-space-2) var(--tl-space-4);
+  height: 160px;
+  border-radius: var(--tl-radius-3);
+  overflow: hidden;
+  background-color: hsl(0 0% 96%);
+  background-image:
+    linear-gradient(45deg, hsl(0 0% 92%) 25%, transparent 25%, transparent 75%, hsl(0 0% 92%) 75%),
+    linear-gradient(45deg, hsl(0 0% 92%) 25%, transparent 25%, transparent 75%, hsl(0 0% 92%) 75%);
+  background-size: 12px 12px;
+  background-position:
+    0 0,
+    6px 6px;
+  border: 1px solid var(--tl-color-divider);
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+}
+
+.NodeImagePreview_dragover {
+  outline: 2px solid var(--tl-color-selected);
+  outline-offset: -2px;
+  background: var(--tl-color-selected-0);
+}
+
+.NodeImagePreview_loading {
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.3) 50%,
+      transparent 100%
+    );
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* ---- Load image node（上传交互：空态「＋」点击/拖拽，有图 hover 替换/清除）---- */
+
+.LoadImageNode-add {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--tl-color-text-3);
+}
+.LoadImageNode-add:hover {
+  color: var(--tl-color-selected);
+}
+.LoadImageNode-add-plus {
+  font-size: 32px;
+  line-height: 1;
+  font-weight: 300;
+}
+.LoadImageNode-add-text {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.LoadImageNode-filled {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.LoadImageNode-filled .NodeMedia {
+  height: 100%;
+  background: transparent;
+}
+.LoadImageNode-overlay {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.LoadImageNode-filled:hover .LoadImageNode-overlay {
+  opacity: 1;
+}
+.LoadImageNode-overlay-btn {
+  height: 22px;
+  min-width: 22px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 11px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.LoadImageNode-overlay-btn:hover {
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.NodeImagePreview-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  span {
+    font-size: 11px;
+    color: var(--tl-color-text-3);
+    opacity: 0.5;
+  }
+}
+
+/* ---- Prompt node ---- */
+
+.PromptNode-row {
+  /* 高度由组件 inline style 按文本自适应给出（与 getBodyHeightPx 同源），这里不再写死。 */
+  align-items: stretch;
+}
+
+.PromptNode-textarea {
+  width: 100%;
+  height: 100%;
+}
+
+/* Prompt text area for the 图片生成 / 视频生成 nodes (taller than a standard row). */
+.MediaGenNode-prompt-row {
+  height: 132px;
+  align-items: stretch;
+}
+
+/* ---- 生成结果（图片）展示区 ---- */
+.MediaGenNode-result {
+  margin: var(--tl-space-2) var(--tl-space-4);
+  min-height: 88px;
+}
+.MediaGenNode-images {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+.MediaGenNode-images img {
+  width: 100%;
+  border-radius: var(--tl-radius-2);
+  display: block;
+}
+.MediaGenNode-result-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 88px;
+  color: var(--tl-color-text-3);
+  font-size: 12px;
+  border-radius: var(--tl-radius-3);
+  background: var(--tl-color-muted-2);
+}
+
+/* 生成结果状态行（图片已落到外部图片节点）。 */
+.MediaGenNode-status {
+  display: flex;
+  align-items: center;
+  margin: var(--tl-space-1) var(--tl-space-4);
+  height: 32px;
+  padding: 0 var(--tl-space-3);
+  color: var(--tl-color-text-3);
+  font-size: 12px;
+  border-radius: var(--tl-radius-2);
+  background: var(--tl-color-muted-2);
+}
+
+/* ---- NodeMedia（图片/视频通用预览：骨架/失败/封面）---- */
+.NodeMedia {
+  position: relative;
+  width: 100%;
+  min-height: 72px;
+  border-radius: var(--tl-radius-2);
+  overflow: hidden;
+  background: var(--tl-color-muted-2);
+}
+.NodeMedia-img,
+.NodeMedia-video {
+  width: 100%;
+  display: block;
+  border-radius: var(--tl-radius-2);
+  /* 禁用媒体原生拖拽：否则拖动封面会触发浏览器 image-drag，落到画布被当成「拖入图片新建节点」。 */
+  -webkit-user-drag: none;
+  user-select: none;
+}
+.NodeMedia-img {
+  cursor: zoom-in;
+}
+.NodeMedia-skeleton {
+  width: 100%;
+  height: 72px;
+  background: linear-gradient(
+    90deg,
+    var(--tl-color-muted-2) 25%,
+    var(--tl-color-muted-1) 37%,
+    var(--tl-color-muted-2) 63%
+  );
+  background-size: 400% 100%;
+  animation: nodeMediaShimmer 1.2s ease-in-out infinite;
+}
+@keyframes nodeMediaShimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+/* 视频无封面时的静态占位（区别于 shimmer 骨架的"加载中"观感）。 */
+.NodeMedia-video-empty {
+  width: 100%;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tl-color-muted-2);
+  color: var(--tl-color-text-3);
+  font-size: 12px;
+}
+.NodeMedia-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 88px;
+  color: var(--tl-color-text-3);
+  font-size: 12px;
+}
+.NodeMedia-error-actions {
+  display: flex;
+  gap: 6px;
+}
+.NodeMedia-error-actions button {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--tl-radius-2);
+  border: 1px solid var(--tl-color-muted-1);
+  background: var(--tl-color-panel);
+  color: var(--tl-color-text);
+  cursor: pointer;
+}
+.NodeMedia-video-poster {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.NodeMedia-play-btn {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 16px;
+  pointer-events: none;
+}
+
+/* ---- 视频内联播放器（结果节点卡内播放）---- */
+.NodeMedia-video-player {
+  display: block;
+}
+/* 视频上用默认指针（不再是图片的 zoom-in 放大镜——播放走控制条按钮，点媒体只选中）。 */
+.NodeMedia-video-player .NodeMedia-img {
+  cursor: default;
+}
+/* 底部控制条：播放/暂停 + 当前时间 + 进度条 + 时长 + 全屏。 */
+.NodeMedia-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: #fffdfa;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0));
+}
+.NodeMedia-ctrl-btn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #fffdfa;
+  cursor: pointer;
+}
+.NodeMedia-ctrl-btn:hover {
+  opacity: 0.85;
+}
+.NodeMedia-ctrl-time {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #fffdfa;
+}
+.NodeMedia-ctrl-progress {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 4px;
+  accent-color: #fffdfa;
+  cursor: pointer;
+}
+
+/* ---- 灯箱：应用内全屏看原件（portal 到 body，盖在画布之上）---- */
+.NodeMedia-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(0, 0, 0, 0.82);
+  cursor: zoom-out;
+}
+.NodeMedia-lightbox-media {
+  max-width: 92vw;
+  max-height: 88vh;
+  border-radius: 8px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+  cursor: default;
+  background: #000;
+}
+.NodeMedia-lightbox-close,
+.NodeMedia-lightbox-download {
+  position: fixed;
+  top: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 16px;
+  border: none;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+}
+.NodeMedia-lightbox-close {
+  right: 20px;
+  width: 32px;
+  padding: 0;
+  font-size: 16px;
+}
+.NodeMedia-lightbox-download {
+  right: 64px;
+}
+.NodeMedia-lightbox-close:hover,
+.NodeMedia-lightbox-download:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* ---- 显示裁剪(framing)：只展示 crop 子区域 ---- */
+/* 节点内封面/图片的裁剪窗口：撑满 .NodeMedia 容器（容器已按 crop 比例定高），overflow:hidden 裁掉框外。
+ * 内层媒体的放大/平移由内联 style（cropStyles）给，这里只兜底保证窗口铺满、可点（开灯箱）。 */
+/* 裁剪展示态：让媒体容器撑满父 imageBox（imageBox 已按 crop 子区域比例定高），
+ * 否则 .NodeMedia 无定高 → 内部 .NodeMedia-cropWrap 的 height:100% 塌缩成图片自然高、再被居中裁切而错位。
+ * 仅裁剪态(.NodeMedia_cropped)生效，不影响非裁剪/图片节点的原布局。 */
+.NodeMedia_cropped {
+  height: 100%;
+}
+
+.NodeMedia-cropWrap {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+/* 灯箱里的「裁剪后视频」窗口：受视口约束（与 .NodeMedia-lightbox-media 同款 max-w/h），
+ * 具体宽高比 aspectRatio 与内层 transform 走内联 style（按 crop 实际像素比，见 LightboxCroppedVideo）。 */
+.NodeMedia-lightbox-cropWrap {
+  overflow: hidden;
+  background: #000;
+}
+.NodeMedia-lightbox-cropWrap > video {
+  display: block;
+}
+
+/* ---- Generate text node ---- */
+
+.GenerateTextNode-result {
+  margin: var(--tl-space-2) var(--tl-space-4);
+  height: 88px;
+  border-radius: var(--tl-radius-3);
+  overflow: hidden;
+  background: var(--tl-color-muted-0);
+  border: 1px solid var(--tl-color-divider);
+}
+
+.GenerateTextNode-result_loading {
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.3) 50%,
+      transparent 100%
+    );
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+}
+
+.GenerateTextNode-result-text {
+  width: 100%;
+  height: 100%;
+  padding: var(--tl-space-3) var(--tl-space-4);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--tl-color-text-1);
+  overflow-y: scroll;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.GenerateTextNode-result-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  span {
+    font-size: 11px;
+    color: var(--tl-color-text-3);
+    opacity: 0.5;
+  }
+}
+
+/* ---- Number node ---- */
+
+.NumberNode {
+  .tlui-slider__container {
+    padding: 0;
+
+    &:has(.tlui-slider__thumb:focus-visible) {
+      outline: none;
+    }
+  }
+}
+
+/* ---- Ports ---- */
+
+.Port {
+  position: absolute;
+  top: calc(var(--port-y, 0px) - 6px);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  z-index: 2;
+  flex: 0 0 auto;
+  transition: transform 0.05s ease-in-out;
+  /* Use port color from inline style or fall back to gray */
+  background: var(--port-color, var(--tl-color-panel));
+  box-shadow:
+    0 0 0 2px var(--tl-color-panel),
+    0 0 0 3px var(--port-color, rgba(0, 0, 0, 0.15));
+
+  [data-state='select.idle'] & {
+    pointer-events: all;
+  }
+
+  &.Port_hinting {
+    transform: scale(1.3);
+    box-shadow:
+      0 0 0 2px var(--tl-color-panel),
+      0 0 0 3px var(--port-color, var(--tl-color-selected)),
+      0 0 8px var(--port-color, var(--tl-color-selected));
+  }
+
+  &.Port_end {
+    left: -6px;
+  }
+
+  &.Port_start {
+    right: -6px;
+  }
+
+  &.Port_eligible {
+    box-shadow:
+      0 0 0 2px var(--tl-color-panel),
+      0 0 0 3px var(--port-color, rgba(0, 0, 0, 0.15)),
+      0 0 4px var(--port-color, var(--tl-color-selected));
+  }
+
+  /* T0.6b：缺少必需前置输入时高亮缺口 */
+  &.Port_missing_required {
+    transform: scale(1.25);
+    box-shadow:
+      0 0 0 2px var(--tl-color-panel),
+      0 0 0 3px #e03131,
+      0 0 8px #e03131;
+  }
+}
+
+/* ---- Connections ---- */
+
+.ConnectionShape {
+  stroke-width: 2px;
+  stroke: var(--tl-color-text-3);
+  fill: none;
+
+  &.ConnectionShape_inactive {
+    opacity: 0.3;
+    stroke-dasharray: 4 4;
+  }
+}
+
+.ConnectionShapeIndicator {
+  stroke-width: 2.1px;
+  stroke-linecap: round;
+}
+
+/* ---- On-canvas node picker ---- */
+
+.OnCanvasNodePicker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: var(--tl-layer-overlays);
+  --top: 66px;
+  transform-origin: 0 0;
+
+  .OnCanvasNodePicker-content {
+    position: absolute;
+    margin-top: calc(-1 * var(--top));
+    width: 200px;
+    box-sizing: border-box;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 8px;
+    background: #322f26;
+    box-shadow:
+      0 0 0 1px rgba(83, 79, 70, 0.72),
+      0 12px 28px rgba(0, 0, 0, 0.32);
+  }
+
+  .OnCanvasNodePicker-title {
+    width: 100%;
+    height: 33px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    color: #a8a49b;
+    font-family: 'PingFang SC', Inter, sans-serif;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 17px;
+    text-transform: capitalize;
+  }
+
+  .tlui-menu__group {
+    width: 100%;
+    padding: 0;
+    border: none !important;
+    border-top: none !important;
+  }
+
+  .OnCanvasNodePicker-title + * {
+    border-top: none !important;
+  }
+
+  .OnCanvasNodePicker-button {
+    width: 100%;
+    height: 40px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px;
+    border-radius: 0;
+    color: #fffdfa;
+    background: transparent;
+  }
+
+  .OnCanvasNodePicker-button:hover {
+    background: rgba(255, 253, 250, 0.06);
+  }
+
+  .OnCanvasNodePicker-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+    color: #fffdfa;
+  }
+
+  .OnCanvasNodePicker-icon svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .OnCanvasNodePicker-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: #fffdfa;
+    font-family: 'PingFang SC', Inter, sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 18px;
+    text-align: left;
+  }
+
+  .OnCanvasNodePicker-label * {
+    color: inherit;
+    font: inherit;
+  }
+
+  &.OnCanvasNodePicker_middle .OnCanvasNodePicker-content {
+    margin-left: -100px;
+  }
+}
+
+/* ---- Pipeline regions ---- */
+
+.tl-canvas__in-front {
+  z-index: var(--tl-layer-above);
+}
+
+.PipelineRegion {
+  position: absolute;
+  color: hsl(260, 40%, 70%);
+  border: 1px dashed currentColor;
+  border-radius: var(--tl-radius-3);
+  pointer-events: none;
+
+  .PipelineRegion-button {
+    position: absolute;
+    top: 0;
+    left: -60px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    color: inherit;
+    background: var(--tl-color-panel);
+    border: 1px solid currentColor;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+
+    .tl-container[data-state='select.idle'] & {
+      pointer-events: all;
+    }
+
+    svg {
+      color: hsl(260, 30%, 60%);
+    }
+  }
+
+  &::after {
+    content: '';
+    display: block;
+    width: 20px;
+    height: 0px;
+    border-bottom: 1px dashed currentColor;
+    position: absolute;
+    top: 20px;
+    left: -20px;
+  }
+
+  &:has(.PipelineRegion-button:hover) {
+    color: var(--tl-color-selected);
+  }
+
+  &.PipelineRegion_executing {
+    color: var(--tl-color-selected);
+    border-style: solid;
+
+    &::after {
+      border-bottom-style: solid;
+    }
+
+    .PipelineRegion-button {
+      border-width: 2px;
+      &::after {
+        content: '';
+        width: 8px;
+        height: 4px;
+        border-radius: 100%;
+        border: 2px solid var(--tl-color-selected);
+        background: var(--tl-color-panel);
+        position: absolute;
+        animation: PipelineRegion-button-spin 1s linear infinite;
+      }
+    }
+  }
+}
+
+@keyframes PipelineRegion-button-spin {
+  0% {
+    transform: rotate(0deg) translateY(-19px);
+  }
+  100% {
+    transform: rotate(360deg) translateY(-19px);
+  }
+}
+
+/* ---- Template picker ---- */
+
+.TemplatePicker-popover {
+  width: 240px;
+  background: var(--tl-color-panel);
+  border-radius: var(--tl-radius-3);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.06),
+    0 4px 12px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+.TemplatePicker-header {
+  padding: var(--tl-space-3) var(--tl-space-4);
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--tl-color-divider);
+}
+
+.TemplatePicker-save {
+  display: flex;
+  gap: var(--tl-space-2);
+  padding: var(--tl-space-3) var(--tl-space-4);
+  border-bottom: 1px solid var(--tl-color-divider);
+
+  input {
+    flex: 1 1 auto;
+    border: 1px solid var(--tl-color-hint);
+    border-radius: var(--tl-radius-3);
+    padding: var(--tl-space-2) var(--tl-space-3);
+    font: inherit;
+    font-size: 11px;
+    outline: none;
+
+    &:focus {
+      border-color: var(--tl-color-selected);
+    }
+  }
+}
+
+.TemplatePicker-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.TemplatePicker-empty {
+  padding: var(--tl-space-4);
+  font-size: 11px;
+  color: var(--tl-color-text-3);
+  text-align: center;
+}
+
+.TemplatePicker-item {
+  display: flex;
+  align-items: center;
+
+  .TemplatePicker-item-button {
+    flex: 1 1 auto;
+  }
+}
+
+/* ---- Image pipeline layout ---- */
+
+.image-pipeline-layout {
+  display: block;
+  background: #191816;
+  color: #fffdfa;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.image-pipeline-layout.is-persona-mode {
+  background: transparent;
+  pointer-events: none;
+}
+
+.image-pipeline-layout.is-persona-mode .image-pipeline-sidebar,
+.image-pipeline-layout.is-persona-mode .image-pipeline-canvas {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.image-pipeline-layout.is-persona-mode .image-pipeline-agent {
+  opacity: 1;
+  visibility: visible;
+  z-index: 90;
+  pointer-events: auto;
+}
+
+.image-pipeline-sidebar {
+  position: absolute;
+  inset: 40px auto 0 0;
+  z-index: 20;
+  width: 250px;
+  pointer-events: none;
+}
+
+.image-pipeline-canvas {
+  position: absolute;
+  inset: 0 0 0 0;
+  width: 100%;
+  height: 100%;
+  background: #191816;
+}
+
+.image-pipeline-agent {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  bottom: 0;
+  z-index: 25;
+  display: block;
+  width: 360px;
+  min-width: 0;
+  overflow: hidden;
+  background: #26231c;
+  border-left: 1px solid #322f26;
+}
+
+.image-pipeline-agent .chat-panel {
+  height: 100%;
+  border-left: none;
+  background: #26231c;
+}
+
+.KlinkoAgentFallback {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  background: #26231c;
+  color: #fffdfa;
+  font-family: 'PingFang SC', 'Inter', sans-serif;
+}
+
+.KlinkoAgentFallback-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.KlinkoAgentFallback-line {
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #322f26, #423f35, #322f26);
+  background-size: 200% 100%;
+  animation: KlinkoAgentFallbackPulse 1.4s ease-in-out infinite;
+}
+
+.KlinkoAgentFallback-line_short {
+  width: 68%;
+}
+
+@keyframes KlinkoAgentFallbackPulse {
+  0% {
+    background-position: 100% 0;
+  }
+
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+/* ---- Klinko whiteboard dock ---- */
+
+.KlinkoPipelineDock {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 250px;
+  pointer-events: none;
+  font-family: 'PingFang SC', 'Inter', sans-serif;
+  color: #fffdfa;
+}
+
+.KlinkoPipelineRail {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  width: 44px;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid #423f35;
+  border-radius: 10px;
+  background: #26231c;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+  pointer-events: auto;
+}
+
+.KlinkoRailButton {
+  position: relative;
+  display: flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #a8a49b;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.KlinkoRailButton:hover {
+  background: #322f26;
+  color: #fffdfa;
+}
+
+.KlinkoRailButton_add {
+  background: #fffdfa;
+  color: #191816;
+}
+
+.KlinkoRailButton_add:hover,
+.KlinkoRailButton_add.is-active {
+  background: #fffdfa;
+  color: #191816;
+}
+
+.KlinkoRailButton.is-active:not(.KlinkoRailButton_add) {
+  background: #423f35;
+  color: #fffdfa;
+}
+
+.KlinkoRailButton_separated {
+  margin-top: 8px;
+}
+
+.KlinkoRailButton_separated::before {
+  content: '';
+  position: absolute;
+  top: -7px;
+  left: 4px;
+  right: 4px;
+  height: 1px;
+  background: #423f35;
+}
+
+.KlinkoRailIcon,
+.KlinkoNodeMenuIcon {
+  position: relative;
+  display: block;
+  width: 16px;
+  height: 16px;
+  color: currentColor;
+  transition: transform 140ms ease;
+}
+
+.KlinkoRailButton_add.is-active .KlinkoRailIcon-add {
+  transform: rotate(45deg);
+}
+
+.KlinkoRailIcon-add::before,
+.KlinkoRailIcon-add::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 7px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.KlinkoRailIcon-add::after {
+  transform: rotate(90deg);
+}
+
+.KlinkoRailIcon-workflow::before,
+.KlinkoRailIcon-workflow::after {
+  content: '';
+  position: absolute;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+}
+
+.KlinkoRailIcon-workflow::before {
+  left: 1px;
+  top: 2px;
+  width: 6px;
+  height: 5px;
+}
+
+.KlinkoRailIcon-workflow::after {
+  right: 1px;
+  bottom: 2px;
+  width: 6px;
+  height: 5px;
+}
+
+.KlinkoRailIcon-history {
+  border: 1.6px solid currentColor;
+  border-radius: 50%;
+}
+
+.KlinkoRailIcon-history::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 3px;
+  width: 1.6px;
+  height: 5px;
+  background: currentColor;
+  transform-origin: bottom;
+  transform: rotate(40deg);
+}
+
+.KlinkoRailIcon-assets::before,
+.KlinkoRailIcon-assets::after {
+  content: '';
+  position: absolute;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+}
+
+.KlinkoRailIcon-assets::before {
+  left: 2px;
+  top: 3px;
+  width: 11px;
+  height: 8px;
+}
+
+.KlinkoRailIcon-assets::after {
+  left: 5px;
+  top: 6px;
+  width: 9px;
+  height: 7px;
+  opacity: 0.6;
+}
+
+.KlinkoRailIcon-help {
+  border: 1.6px solid currentColor;
+  border-radius: 50%;
+}
+
+.KlinkoRailIcon-help::before {
+  content: '?';
+  position: absolute;
+  inset: -1px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.KlinkoRailIcon-contact::before,
+.KlinkoRailIcon-contact::after {
+  content: '';
+  position: absolute;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.KlinkoRailIcon-contact::before {
+  left: 5px;
+  top: 2px;
+  width: 6px;
+  height: 6px;
+}
+
+.KlinkoRailIcon-contact::after {
+  left: 2px;
+  bottom: 2px;
+  width: 12px;
+  height: 7px;
+  border-bottom-color: transparent;
+}
+
+.KlinkoNodeMenu {
+  position: absolute;
+  left: 58px;
+  top: 50%;
+  width: 180px;
+  transform: translateY(-50%);
+  padding: 10px 0;
+  border: 1px solid #322f26;
+  border-radius: 10px;
+  background: #26231c;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.32);
+  pointer-events: auto;
+}
+
+.KlinkoNodeMenu_panel {
+  width: 190px;
+  padding-bottom: 8px;
+}
+
+.KlinkoNodeMenu_panel_assets,
+.KlinkoNodeMenu_panel_solutions {
+  display: flex;
+  width: 480px;
+  height: 320px;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.KlinkoNodeMenu-section + .KlinkoNodeMenu-section {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #322f26;
+}
+
+.KlinkoNodeMenu-title {
+  padding: 0 10px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 17px;
+  color: #e1ded8;
+}
+
+.KlinkoNodeMenu-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 6px;
+}
+
+.KlinkoNodeMenu-panelItems {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 6px 8px;
+}
+
+.KlinkoNodeMenu-panelHeader {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 8px;
+  border-bottom: 1px solid #322f26;
+}
+
+.KlinkoNodeMenu-panelTitleGroup {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.KlinkoNodeMenu-panelTitle,
+.KlinkoNodeMenu-panelTab_active {
+  color: #fffdfa;
+  font-weight: 500;
+}
+
+.KlinkoNodeMenu-panelTab {
+  color: #e1ded8;
+  font-weight: 400;
+}
+
+.KlinkoNodeMenu-panelClose {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #a8a49b;
+  cursor: pointer;
+}
+
+.KlinkoNodeMenu-panelClose:hover {
+  background: #322f26;
+  color: #fffdfa;
+}
+
+.KlinkoNodeMenu-panelClose::before,
+.KlinkoNodeMenu-panelClose::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 11px;
+  width: 12px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.KlinkoNodeMenu-panelClose::before {
+  transform: rotate(45deg);
+}
+
+.KlinkoNodeMenu-panelClose::after {
+  transform: rotate(-45deg);
+}
+
+.KlinkoNodeMenu-panelFilters {
+  display: flex;
+  gap: 10px;
+  padding: 12px 12px 6px;
+}
+
+.KlinkoNodeMenu-panelFilter {
+  display: flex;
+  height: 24px;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 6px;
+  color: #fffdfa;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.KlinkoNodeMenu-panelFilter_active {
+  background: #423f35;
+}
+
+.KlinkoNodeMenu-panelItem {
+  display: flex;
+  height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #e1ded8;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.KlinkoNodeMenu-panelHint {
+  color: #6f6b62;
+  font-size: 11px;
+}
+
+.KlinkoNodeMenu-cardGrid {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 6px 12px 16px;
+}
+
+.KlinkoNodeMenu-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: #e1ded8;
+  font-family: inherit;
+  text-align: left;
+}
+
+.KlinkoNodeMenu-cardThumb {
+  display: block;
+  aspect-ratio: 1;
+  width: 100%;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(255, 253, 250, 0.08), rgba(255, 253, 250, 0)), #191816;
+  overflow: hidden;
+}
+
+.KlinkoNodeMenu-cardThumb_1 {
+  background: linear-gradient(135deg, rgba(255, 194, 73, 0.34), rgba(255, 253, 250, 0.06)), #191816;
+}
+
+.KlinkoNodeMenu-cardThumb_2 {
+  background: linear-gradient(135deg, rgba(38, 187, 255, 0.26), rgba(255, 253, 250, 0.06)), #191816;
+}
+
+.KlinkoNodeMenu-cardThumb_3 {
+  background: linear-gradient(135deg, rgba(111, 107, 98, 0.36), rgba(255, 253, 250, 0.05)), #191816;
+}
+
+.KlinkoNodeMenu-cardTitle {
+  display: -webkit-box;
+  height: 34px;
+  overflow: hidden;
+  color: #e1ded8;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 17px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.KlinkoNodeMenu-item {
+  display: flex;
+  align-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #e1ded8;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+  touch-action: none;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.KlinkoNodeMenu-item:hover:not(:disabled),
+.KlinkoNodeMenu-item:active:not(:disabled) {
+  background: #322f26;
+  color: #fffdfa;
+}
+
+.KlinkoNodeMenu-item:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.KlinkoNodeMenu-item_tile {
+  width: 53px;
+  height: 62px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 4px;
+  text-align: center;
+}
+
+.KlinkoNodeMenu-item_row {
+  width: 100%;
+  height: 40px;
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.KlinkoNodeMenu-item-icon {
+  display: flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #534f46;
+  border-radius: 8px;
+  background: #322f26;
+  color: #e1ded8;
+}
+
+.KlinkoNodeMenu-item-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.KlinkoNodeMenu-item-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.KlinkoNodeMenu-item_tile .KlinkoNodeMenu-item-title {
+  width: 100%;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.KlinkoNodeMenuIcon-video::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 3px;
+  width: 12px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+}
+
+.KlinkoNodeMenuIcon-video::after {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 6px;
+  width: 0;
+  height: 0;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  border-left: 4px solid currentColor;
+}
+
+.KlinkoNodeMenuIcon-persona::before,
+.KlinkoNodeMenuIcon-persona::after {
+  content: '';
+  position: absolute;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.KlinkoNodeMenuIcon-persona::before {
+  left: 5px;
+  top: 2px;
+  width: 6px;
+  height: 6px;
+}
+
+.KlinkoNodeMenuIcon-persona::after {
+  left: 2px;
+  bottom: 2px;
+  width: 12px;
+  height: 7px;
+  border-bottom-color: transparent;
+}
+
+.KlinkoNodeMenuIcon-insight::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 2px;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.KlinkoNodeMenuIcon-insight::after {
+  content: '';
+  position: absolute;
+  left: 7px;
+  bottom: 1px;
+  width: 2px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.KlinkoNodeMenuIcon-strategy::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 4px;
+  width: 12px;
+  height: 8px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+}
+
+.KlinkoNodeMenuIcon-strategy::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 6px;
+  height: 14px;
+  border-top: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+}
+
+[data-testid='main-menu-sub.help menu color-scheme-button'] {
+  display: none !important;
+}
+
+/* ---- Two-pane node（creative_strategy / demand_insight 双栏布局）---- */
+
+.TwoPaneNode {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.TwoPaneNode *,
+.TwoPaneNode *::before,
+.TwoPaneNode *::after {
+  box-sizing: border-box;
+}
+
+/* 端口行：通栏置顶（Port 由 .Port_end 绝对定位到左边缘）。 */
+.TwoPaneNode-portRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 48px;
+  padding: 0 12px;
+  gap: 6px;
+}
+
+.TwoPaneNode-portLabel {
+  font-size: 12px;
+  font-weight: 500;
+  flex: 0 0 auto;
+}
+
+.TwoPaneNode-portTier {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--tl-color-text-3);
+  flex: 0 0 auto;
+}
+
+.TwoPaneNode-topDivider {
+  height: 12px;
+  border-bottom: 1px solid var(--tl-color-low-border);
+}
+
+.TwoPaneNode-columns {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.TwoPaneNode-leftPane {
+  width: 280px;
+  flex: 0 0 280px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.TwoPaneNode-paneDivider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--tl-color-low-border);
+  flex: 0 0 1px;
+}
+
+.TwoPaneNode-rightPane {
+  width: 279px;
+  flex: 0 0 279px;
+  display: flex;
+  flex-direction: column;
+  padding: 0 12px 8px;
+  min-height: 0;
+}
+
+/* 左栏：单选下拉行（容纳 SingleDropdown，块级占满宽度；高度 = trigger 40 + 上下 padding） */
+.TwoPaneNode-selectRow {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+}
+
+/* 左栏：多行输入框（含工具条） */
+.TwoPaneNode-inputBox {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 4px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  background: var(--tl-color-low);
+  border: 1px solid #423f35;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.TwoPaneNode-textarea {
+  flex: 1 1 auto;
+  min-height: 0;
+  resize: none;
+  border: none;
+  background: none;
+  color: var(--tl-color-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  padding: 8px;
+  outline: none;
+}
+
+.TwoPaneNode-textarea::placeholder {
+  color: var(--tl-color-text-3);
+}
+
+.TwoPaneNode-inputToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 6px 8px 8px;
+  flex: 0 0 auto;
+}
+
+.TwoPaneNode-iconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  color: var(--tl-color-text);
+  cursor: pointer;
+}
+
+.TwoPaneNode-iconBtn:hover:not(:disabled) {
+  background: var(--tl-color-muted-0);
+}
+
+.TwoPaneNode-iconBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.TwoPaneNode-runBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: var(--tl-color-text);
+  color: #191816;
+  cursor: pointer;
+}
+
+.TwoPaneNode-runBtn:hover {
+  opacity: 0.9;
+}
+
+.TwoPaneNode-runBtn_executing {
+  background: var(--tl-color-selected);
+  color: var(--tl-color-selected-contrast);
+}
+
+/* 右栏：结果卡片 + 工具条 */
+.TwoPaneNode-result {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--tl-color-panel-contrast);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.TwoPaneNode-result_loading {
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.18) 50%,
+      transparent 100%
+    );
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+}
+
+.TwoPaneNode-resultText {
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--tl-color-text-1);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.TwoPaneNode-resultEmpty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  span {
+    font-size: 12px;
+    color: var(--tl-color-text-3);
+    opacity: 0.6;
+  }
+}
+
+.TwoPaneNode-resultToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  height: 32px;
+  flex: 0 0 32px;
+  padding-top: 8px;
+}
+
+/* ---- Chromeless node（自带 header/footer 的面板型节点，去掉默认外壳）---- */
+.NodeShape_chromeless {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* ---- 图片生成 控制面板（文生图）---- */
+.ImageGenPanel {
+  display: flex;
+  flex-direction: column;
+  background: var(--tl-color-panel);
+  border: 1px solid var(--tl-color-low-border);
+  border-radius: 10px;
+}
+
+.ImageGenPanel *,
+.ImageGenPanel *::before,
+.ImageGenPanel *::after {
+  box-sizing: border-box;
+}
+
+.ImageGenPanel-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 4px;
+}
+
+.ImageGenPanel-tab {
+  height: 26px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid #534f46;
+  background: var(--tl-color-low);
+  color: var(--tl-color-text-1);
+  cursor: pointer;
+}
+
+.ImageGenPanel-tab_active {
+  background: var(--tl-color-divider);
+  border-color: var(--tl-color-text-3);
+  color: var(--tl-color-text);
+}
+
+.ImageGenPanel-tab_disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.ImageGenPanel-divider {
+  height: 1px;
+  background: var(--tl-color-low-border);
+  margin-top: 4px;
+}
+
+.ImageGenPanel-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+
+.ImageGenPanel-toolRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 首尾帧「调换」按钮：夹在首帧/尾帧两个 48px 槽之间、垂直居中。 */
+.ImageGenPanel-swapBtn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 48px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.ImageGenPanel-swapBtn:hover:not(:disabled) {
+  opacity: 0.75;
+}
+.ImageGenPanel-swapBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ImageGenPanel-styleBtn {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: var(--tl-color-low);
+  border: 1px solid var(--tl-color-low-border);
+  border-radius: 8px;
+  color: var(--tl-color-text-3);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.ImageGenPanel-styleBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 生成进行中：popover 触发器（model/比例/数量等 pill）整体置灰、禁点。 */
+.ImageGenPanel-popoverTrigger_disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.ImageGenPanel-vdivider {
+  width: 1px;
+  height: 32px;
+  flex: 0 0 auto;
+  background: var(--tl-color-divider);
+}
+
+.ImageGenPanel-thumb {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+}
+
+/* 上传中的占位槽（与缩略图同尺寸）：居中显示转圈。 */
+.ImageGenPanel-thumb_loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--tl-color-low-border);
+  background: var(--tl-color-low);
+}
+
+/* 上传中转圈：旋转圆环。用于参考素材/音频按钮（替换图标）与上传占位槽。 */
+.ImageGenPanel-spinner {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 2px solid var(--tl-color-low-border);
+  border-top-color: var(--tl-color-text-1);
+  animation: ImageGenPanel-spin 0.7s linear infinite;
+}
+@keyframes ImageGenPanel-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ImageGenPanel-thumb img,
+.ImageGenPanel-thumb video {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--tl-color-low-border);
+}
+
+.ImageGenPanel-thumbRemove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(25, 24, 22, 0.85);
+  color: var(--tl-color-text-1);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* 视频参考缩略图上的播放标识 */
+.ImageGenPanel-thumb_video .ImageGenPanel-thumbPlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fffdfa;
+  font-size: 14px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+/* 音频参考 chip：图标 + 文案 + 删除 */
+.ImageGenPanel-audioChip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 48px;
+  padding: 0 10px;
+  flex: 0 0 auto;
+  background: var(--tl-color-low);
+  border: 1px solid var(--tl-color-low-border);
+  border-radius: 8px;
+  color: var(--tl-color-text-3);
+  font-size: 11px;
+}
+
+.ImageGenPanel-textarea {
+  min-height: 56px;
+  resize: none;
+  border: none;
+  background: none;
+  color: var(--tl-color-text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  padding: 4px;
+  outline: none;
+}
+
+.ImageGenPanel-textarea::placeholder {
+  color: var(--tl-color-text-3);
+}
+
+/* 文本输入区字符计数（需求 §3.3：≤2000）。 */
+.ImageGenPanel-charCount {
+  align-self: flex-end;
+  margin-top: 2px;
+  color: var(--tl-color-text-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ImageGenPanel-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+}
+
+.ImageGenPanel-bottomLeft,
+.ImageGenPanel-bottomRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ImageGenPanel-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 4px 6px 4px 8px;
+  border: none;
+  border-radius: 8px;
+  /* 默认无底色；仅在 hover（鼠标在热区内）或弹窗打开(_active) 时才有底色，作即时交互反馈/当前生效态。 */
+  background: none;
+  color: var(--tl-color-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* hover 热区反馈 + 弹窗打开（当前生效）态：显示底色。 */
+.ImageGenPanel-pill:hover,
+.ImageGenPanel-pill_active {
+  background: var(--tl-color-divider);
+}
+
+.ImageGenPanel-chevron {
+  transform: rotate(90deg);
+  flex: 0 0 auto;
+}
+
+.ImageGenPanel-iconBtn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.ImageGenPanel-iconBtn:hover:not(:disabled) {
+  background: var(--tl-color-muted-0);
+}
+
+.ImageGenPanel-iconBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ImageGenPanel-runBtn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 7px;
+  background: var(--tl-color-text);
+  cursor: pointer;
+}
+
+.ImageGenPanel-runBtn_executing {
+  background: var(--tl-color-selected);
+}
+
+/* 浮层 */
+.ImageGenPanel-popoverWrap {
+  position: relative;
+  display: flex;
+}
+
+.ImageGenPanel-popover {
+  position: absolute;
+  /* 向下弹：工具条在面板底部，向下是空白画布区；向上会戳进节点(选中框/端口/连线)
+	   所在的 tldraw overlay 层，导致蓝色框线盖在浮窗上。 */
+  top: calc(100% + 6px);
+  min-width: 140px;
+  padding: 8px;
+  background: var(--tl-color-panel);
+  border: 1px solid #534f46;
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(25, 24, 22, 0.8);
+  z-index: 10;
+}
+
+.ImageGenPanel-popover_left {
+  left: 0;
+}
+
+.ImageGenPanel-popover_right {
+  right: 0;
+}
+
+.ImageGenPanel-menuItem {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 8px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  color: var(--tl-color-text-1);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ImageGenPanel-menuItem:hover {
+  background: var(--tl-color-muted-0);
+}
+
+.ImageGenPanel-menuItem_active {
+  background: var(--tl-color-divider);
+  color: var(--tl-color-text);
+}
+
+/* 模型浮窗行：32×32 缩略图框 + 14px 名称（对齐设计稿） */
+.ImageGenPanel-modelItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  color: var(--tl-color-text);
+  white-space: nowrap;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ImageGenPanel-modelItem:hover {
+  background: var(--tl-color-muted-0);
+}
+
+.ImageGenPanel-modelThumb {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tl-color-panel-contrast);
+  border: 1px solid var(--tl-color-divider);
+  border-radius: 6px;
+}
+
+.ImageGenPanel-popoverSection {
+  font-size: 12px;
+  color: var(--tl-color-text-3);
+  padding: 6px 4px 4px;
+}
+
+.ImageGenPanel-segs {
+  display: flex;
+  gap: 8px;
+}
+
+.ImageGenPanel-seg {
+  flex: 1 1 0;
+  /* 显式居中文字（2K/4K），不依赖浏览器 button 默认对齐，保证垂直+水平居中。 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid #534f46;
+  background: var(--tl-color-low);
+  color: var(--tl-color-text-1);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ImageGenPanel-seg_active {
+  background: var(--tl-color-divider);
+  border-color: var(--tl-color-text-3);
+  color: var(--tl-color-text);
+}
+
+/* 生成音频开/关：图标 + 文字横排居中。 */
+.ImageGenPanel-seg_audio {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.ImageGenPanel-ratioGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.ImageGenPanel-ratio {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid #534f46;
+  background: var(--tl-color-low);
+  color: var(--tl-color-text-1);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ImageGenPanel-ratio svg {
+  flex: 0 0 auto;
+}
+
+.ImageGenPanel-ratio_active {
+  background: var(--tl-color-divider);
+  border-color: var(--tl-color-text-3);
+  color: var(--tl-color-text);
+}
+
+/* 图片节点本体（图片框）+ 选中态控制面板浮层 */
+.ImageGenNode {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 基础节点两侧常驻端口容器：避开 header(40px)、在 body 内垂直居中，端口贴左右边缘。 */
+/* 左右两侧「+」端口的容器。它绝对定位、top:40px;bottom:0 罩住整个 body（含图片/视频预览）。
+ * 容器必须保持 pointer-events:none，否则会拦截 body 内容（如视频封面）的点击 → 视频"点击没反应"。
+ * 坑：上方 `[data-state='select.idle'] .NodeShape > :not(.NodeShape-heading)` 规则会把所有非 heading 直接子级
+ * 置为 pointer-events:all，曾把本容器一并置 all 造成遮挡；已在那条规则用 :not(.NodeShape-sidePorts) 排除本容器。
+ * 真正可点的是下面的 .Port 子级（自身 pointer-events:all），容器 none 只是让点击穿透。 */
+.NodeShape-sidePorts {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 40px;
+  bottom: 0;
+  pointer-events: none;
+}
+.NodeShape-sidePorts .Port {
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: all;
+  /* 「+」圆框样式（设计提供）：深底 + 浅描边。默认 #E1DED8（图片节点维持此原样）。 */
+  background: rgba(25, 24, 22, 0.6);
+  box-shadow: 0 0 0 0.5px #e1ded8;
+}
+/* 「+」横竖两条线：默认 #FFFDFA（图片节点维持此原样）。 */
+.NodeShape-sidePorts .Port::before,
+.NodeShape-sidePorts .Port::after {
+  content: '';
+  position: absolute;
+  background: #fffdfa;
+}
+/* 视频节点未选中：端口描边/「+」转素色（选中时回到上面的高亮）。图片节点不受影响。 */
+.NodeShape_video_generation:not(.NodeShape_selected) .NodeShape-sidePorts .Port {
+  box-shadow: 0 0 0 0.5px #534f46;
+}
+.NodeShape_video_generation:not(.NodeShape_selected) .NodeShape-sidePorts .Port::before,
+.NodeShape_video_generation:not(.NodeShape_selected) .NodeShape-sidePorts .Port::after {
+  background: #a8a49b;
+}
+.NodeShape-sidePorts .Port::before {
+  left: 3px;
+  right: 3px;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+}
+.NodeShape-sidePorts .Port::after {
+  top: 3px;
+  bottom: 3px;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+}
+
+/* 生成中：run 按钮禁用。 */
+.ImageGenPanel-runBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ImageGenNode-imageBox {
+  /* position:relative 是裁剪框 .VideoCropFrame(absolute;inset:0) 的定位基准——
+   * 否则覆盖层会相对外层 .ImageGenNode 定位、含 imageBox 的 margin 偏移，裁剪框与媒体区对不齐。 */
+  position: relative;
+  margin: 4px 12px 12px;
+  height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--tl-color-panel-contrast);
+  border: 1px solid #534f46;
+  border-radius: 12px;
+}
+
+/* ---- 媒体结果节点（图片/视频结果）：卡片只装媒体、铺满；标题浮到卡外上方 ---- */
+/* 媒体铺满卡片：去掉 imageBox 的边距/独立边框/底色（卡片自身描边即媒体框；圆角对齐卡片）。 */
+.NodeShape_mediaResult .ImageGenNode,
+.NodeShape_mediaResult .ImageGenNode-imageBox {
+  height: 100%;
+}
+.NodeShape_mediaResult .ImageGenNode-imageBox {
+  margin: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--tl-radius-3);
+}
+/* 无卡内 header：两侧端口容器占满整卡（不再下移 40px header），端口随之垂直居中卡片。 */
+.NodeShape_mediaResult .NodeShape-sidePorts {
+  top: 0;
+}
+/* 标题浮到卡片【外部上方】（不在卡内 header），色 #E1DED8。 */
+.NodeShape-mediaTitle {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 2px;
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-3);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.NodeShape-mediaTitle .NodeShape-icon,
+.NodeShape-mediaTitle .NodeShape-label {
+  color: #e1ded8;
+}
+.NodeShape-mediaTitle .NodeShape-label {
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.ImageGenNode-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 空 media 时的状态/反馈文案（生成中、生成失败、请先填写… 等 lastResult）。 */
+.ImageGenNode-status {
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--tl-color-text-3);
+  text-align: center;
+  word-break: break-word;
+}
+
+/* 多图结果：2 列网格铺满，全部可见。 */
+.ImageGenNode-imageBox_grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+}
+
+.ImageGenNode-gridImage {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+/* 控制面板作为选中态浮层，挂在图片节点下方居中。 */
+.ImageGenPanel_overlay {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+}
+
+/* 视频结果节点顶部动作工具栏：选中态浮层，挂在节点上方居中。
+ * 结果节点已无卡内 header（卡片=媒体），其外部上方有浮动标题（~26px）；工具栏再浮在标题之上，
+ * 故 bottom 抬升约 34px（越过标题 + 间距）。深色圆角栏：底 #26231C / 描边 #423F35 / 文字 #FFFDFA / 外阴影。 */
+.VideoResultToolbar {
+  position: absolute;
+  bottom: calc(100% + 34px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 6px;
+  gap: 2px;
+  white-space: nowrap;
+  background: #26231c;
+  border: 1px solid #423f35;
+  border-radius: 10px;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.5);
+  color: #fffdfa;
+}
+
+/* 左组：图标 + 文字按钮 */
+.VideoResultToolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.VideoResultToolbar-btn:hover:not(.VideoResultToolbar-btn_muted) {
+  background: rgba(255, 253, 250, 0.08);
+}
+
+/* 占位（后端能力待接）：置灰、不可用态，但仍可点以弹出「暂未开放」Toast
+ * （故不用原生 disabled——disabled 不触发 onClick，Toast 会不可达）。 */
+.VideoResultToolbar-btn_muted {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.VideoResultToolbar-btn svg {
+  flex: 0 0 auto;
+}
+
+/* 右组：纯图标按钮 */
+.VideoResultToolbar-iconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.VideoResultToolbar-iconBtn:hover:not(:disabled) {
+  background: rgba(255, 253, 250, 0.08);
+}
+
+/* 下载进行中：置灰、禁点（避免并发拉多个 blob）。 */
+.VideoResultToolbar-iconBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 左右两组之间的竖分隔线（设计稿高 24px、色 #423F35）。 */
+.VideoResultToolbar-divider {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 24px;
+  margin: 0 8px;
+  background: #423f35;
+}
+
+/* 视频生成：时长滑块 */
+.VideoGenPanel-durationRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px 4px;
+}
+
+.VideoGenPanel-slider {
+  flex: 1 1 auto;
+  accent-color: #f4b740;
+}
+
+.VideoGenPanel-durationValue {
+  flex: 0 0 auto;
+  min-width: 40px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--tl-color-text);
+  background: var(--tl-color-low);
+  border: 1px solid var(--tl-color-low-border);
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+
+/* 双栏节点中的多选行容器（高度由 MultiSelectTags 固定，见组件常量） */
+.TwoPaneNode-multiRow {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+}
+
+/* 输入框工具条左侧字符计数 */
+.TwoPaneNode-charCount {
+  margin-right: auto;
+  color: var(--tl-color-text-3);
+  font-size: 11px;
+}
+
+/* ===== 圈层画像节点（PersonaNode）布局：三个筛选区 ===== */
+.PersonaNode {
+  display: flex;
+  flex-direction: column;
+}
+
+.PersonaNode-topDivider {
+  height: 1px;
+  background: #322f26;
+  margin-bottom: 12px;
+}
+
+.PersonaNode-section {
+  padding: 4px 12px;
+}
+
+/* ===== 通用下拉（PipelineDropdown）：单选/多选共用，触发框 + 深色浮层 + 标签 ===== */
+.PipelineDropdown {
+  position: relative;
+}
+
+/* 多选：触发框 + 浮层的相对定位容器（单选时触发框直接在 .PipelineDropdown 内） */
+.PipelineDropdown-triggerWrap {
+  position: relative;
+}
+
+.PipelineDropdown-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  padding: 8px 8px 8px 12px;
+  background: #1f1d18;
+  border: 1px solid #534f46;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.PipelineDropdown-triggerLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #e1ded8;
+}
+
+/* 单选未选时，触发框显示占位 label（弱化色） */
+.PipelineDropdown-triggerLabel_placeholder {
+  color: var(--tl-color-text-3);
+}
+
+.PipelineDropdown-chevron {
+  flex: 0 0 auto;
+  transition: transform 0.12s ease;
+}
+
+.PipelineDropdown-chevron_open {
+  transform: rotate(180deg);
+}
+
+/* 浮层：向下弹（避开 tldraw 选中框层）、z-index 抬高、不参与几何 */
+.PipelineDropdown-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  padding: 6px;
+  background: var(--tl-color-panel);
+  border: 1px solid #534f46;
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(25, 24, 22, 0.8);
+}
+
+/* 单选列表项 */
+.PipelineDropdown-listItem {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  color: #e1ded8;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.PipelineDropdown-listItem:hover {
+  background: var(--tl-color-muted-0);
+}
+
+.PipelineDropdown-listItem_active {
+  background: #3a362d;
+  color: #fffdfa;
+}
+
+/* 多选勾选项 */
+.PipelineDropdown-checkItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  color: #e1ded8;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.PipelineDropdown-checkItem:hover {
+  background: var(--tl-color-muted-0);
+}
+
+.PipelineDropdown-checkbox {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #534f46;
+  border-radius: 6px;
+  background: #1f1d18;
+}
+
+.PipelineDropdown-checkbox_checked {
+  background: #3a362d;
+  border-color: #6f6a5e;
+}
+
+.PipelineDropdown-checkLabel {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 已选标签：触发框下方、纵向堆叠、可删 */
+.PipelineDropdown-tags {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding-top: 4px;
+}
+
+.PipelineDropdown-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  max-width: 100%;
+  padding: 0 6px 0 10px;
+  background: #1f1d18;
+  border: 1px solid #534f46;
+  border-radius: 6px;
+  color: #e1ded8;
+  font-size: 13px;
+}
+
+.PipelineDropdown-tagLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.PipelineDropdown-tagSep {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 14px;
+  background: #534f46;
+}
+
+.PipelineDropdown-tagRemove {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: none;
+  color: #a8a49b;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.PipelineDropdown-tagRemove:hover {
+  color: #e1ded8;
+}
+
+/* ===========================================================================
+ * 视频结果节点 · 自由裁剪框覆盖层（纯前端显示裁剪交互）。
+ * 覆盖层绝对定位铺满 .ImageGenNode-imageBox（媒体区）。框内坐标即归一化帧坐标 [0,1]。
+ * pointer-events 纪律：覆盖层自身吃事件（捕获指针、stopPropagation），避免点击穿透到封面（开灯箱）
+ * 或冒泡到 tldraw 画布（平移/框选）。子级 handle/按钮同样捕获事件。
+ * =========================================================================== */
+/* ---- 视频裁剪：媒体上的裁剪框（VideoCropFrame） ---- */
+.VideoCropFrame {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  /* 覆盖层必须实际接收指针（容器 .NodeShape-sidePorts 是 none，但本层在媒体区之上、需可拖）。 */
+  pointer-events: auto;
+  /* 拖动时禁用文本选中/触摸滚动，手感更稳。 */
+  user-select: none;
+  touch-action: none;
+}
+
+/* 框外四块遮罩：压暗非选区，突出 crop 子区域。 */
+.VideoCropFrame-mask {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+/* 裁剪框本体：浅色细描边，拖动改位置（move 光标）。 */
+.VideoCropFrame-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 253, 250, 0.9);
+  cursor: move;
+}
+
+/* 九宫格（三分法）参考线：细白线，纯展示。 */
+.VideoCropFrame-grid {
+  position: absolute;
+  background: rgba(255, 253, 250, 0.35);
+  pointer-events: none;
+}
+.VideoCropFrame-grid_v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+.VideoCropFrame-grid_h {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+/* 四角把手：直角括号（用两条边框画 L 形），骑在角上、放大命中区。 */
+.VideoCropFrame-handle {
+  position: absolute;
+}
+.VideoCropFrame-handle_nw,
+.VideoCropFrame-handle_ne,
+.VideoCropFrame-handle_sw,
+.VideoCropFrame-handle_se {
+  width: 18px;
+  height: 18px;
+}
+.VideoCropFrame-handle_nw {
+  left: -2px;
+  top: -2px;
+  border-left: 3px solid #fffdfa;
+  border-top: 3px solid #fffdfa;
+  cursor: nwse-resize;
+}
+.VideoCropFrame-handle_ne {
+  right: -2px;
+  top: -2px;
+  border-right: 3px solid #fffdfa;
+  border-top: 3px solid #fffdfa;
+  cursor: nesw-resize;
+}
+.VideoCropFrame-handle_sw {
+  left: -2px;
+  bottom: -2px;
+  border-left: 3px solid #fffdfa;
+  border-bottom: 3px solid #fffdfa;
+  cursor: nesw-resize;
+}
+.VideoCropFrame-handle_se {
+  right: -2px;
+  bottom: -2px;
+  border-right: 3px solid #fffdfa;
+  border-bottom: 3px solid #fffdfa;
+  cursor: nwse-resize;
+}
+/* 四边把手：中点短条（横/竖），骑在边中点。 */
+.VideoCropFrame-handle_n,
+.VideoCropFrame-handle_s {
+  left: 50%;
+  transform: translateX(-50%);
+  width: 24px;
+  height: 4px;
+  background: #fffdfa;
+  border-radius: 2px;
+  cursor: ns-resize;
+}
+.VideoCropFrame-handle_n {
+  top: -2px;
+}
+.VideoCropFrame-handle_s {
+  bottom: -2px;
+}
+.VideoCropFrame-handle_w,
+.VideoCropFrame-handle_e {
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 24px;
+  background: #fffdfa;
+  border-radius: 2px;
+  cursor: ew-resize;
+}
+.VideoCropFrame-handle_w {
+  left: -2px;
+}
+.VideoCropFrame-handle_e {
+  right: -2px;
+}
+
+/* ---- 视频裁剪：上方控制条（VideoCropBar） ---- */
+/* 与动作工具栏 .VideoResultToolbar 同位（浮在节点上方、标题之上）。 */
+.VideoCropBar {
+  position: absolute;
+  bottom: calc(100% + 34px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  padding: 0 8px 0 6px;
+  white-space: nowrap;
+  background: #26231c;
+  border: 1px solid #423f35;
+  border-radius: 10px;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.5);
+  color: #fffdfa;
+}
+.VideoCropBar-iconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+}
+.VideoCropBar-iconBtn:hover {
+  background: rgba(255, 253, 250, 0.08);
+}
+.VideoCropBar-dims {
+  min-width: 96px;
+  text-align: center;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.VideoCropBar-confirm {
+  height: 32px;
+  padding: 0 16px;
+  background: #fffdfa;
+  color: #26231c;
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.VideoCropBar-confirm:hover {
+  background: #fff;
+}

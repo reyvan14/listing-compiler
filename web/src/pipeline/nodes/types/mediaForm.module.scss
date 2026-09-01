@@ -1,0 +1,68 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.prompt {
+  width: 100%;
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 1px solid #6f6855;
+  border-radius: 8px;
+  background: #191816;
+  color: #fffdfa;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  resize: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+}
+
+.pill {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid #534f46;
+  border-radius: 6px;
+  background: #26231c;
+  color: #e1ded8;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pillActive {
+  border-color: #ffc249;
+  color: #ffc249;
+}
+
+.run {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: #ffc249;
+  color: #191816;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.run:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

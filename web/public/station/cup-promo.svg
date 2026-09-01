@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1280">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#123c3a"/>
+      <stop offset="1" stop-color="#0a1c28"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="1280" fill="url(#bg)"/>
+  <text x="48" y="120" fill="#ffe34a" font-family="Arial Black, sans-serif" font-size="92" font-weight="800">NEW</text>
+  <text x="48" y="220" fill="#ffffff" font-family="Arial Black, sans-serif" font-size="78" font-weight="800">50% OFF</text>
+  <text x="48" y="290" fill="#9ee7c8" font-family="Arial, sans-serif" font-size="36" font-weight="700">BPA FREE · LEAK PROOF</text>
+  <g transform="translate(360 690) scale(1.15)">
+    <path d="M-118-40c8 118 28 176 118 176s110-58 118-176" fill="#6f9a86"/>
+    <ellipse cx="0" cy="-42" rx="122" ry="28" fill="#88b39c"/>
+    <rect x="-108" y="-168" width="216" height="118" rx="18" fill="#7eaa94"/>
+    <ellipse cx="0" cy="-168" rx="108" ry="24" fill="#9ec4ae"/>
+    <path d="M-86-150h172M-86-126h172M-86-102h172M-86-78h172" stroke="#5a7f6d" stroke-width="5" stroke-linecap="round"/>
+    <ellipse cx="0" cy="-198" rx="118" ry="26" fill="#4f6f60"/>
+    <ellipse cx="0" cy="-214" rx="28" ry="8" fill="#2c3f36"/>
+    <ellipse cx="62" cy="-188" rx="18" ry="8" fill="#c8a15a"/>
+  </g>
+  <rect x="48" y="980" width="624" height="88" fill="#ffe34a"/>
+  <text x="360" y="1038" text-anchor="middle" fill="#121826" font-family="Arial Black, sans-serif" font-size="42">POCKET CUP 350</text>
+  <text x="360" y="1148" text-anchor="middle" fill="#d7eadc" font-family="Arial, sans-serif" font-size="28">Shop now · Limited drop</text>
+</svg>

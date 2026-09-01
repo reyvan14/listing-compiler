@@ -1,0 +1,112 @@
+import classNames from 'classnames';
+import { TLShapeId, useEditor, useValue, VecModel } from 'tldraw';
+import { PORT_TYPE_COLORS, PortDataType } from '../constants';
+import { missingRequiredPorts } from '../execution/requiredInputs';
+import { getNodePorts } from '../nodes/nodePorts';
+import { portState } from './portState';
+
+export type PortId = string;
+
+/**
+ * Port ids are unique within a shape. To identify a port we need both the shape id and the port id.
+ */
+export interface PortIdentifier {
+  shapeId: TLShapeId;
+  portId: PortId;
+}
+
+/**
+ * Shapes define their ports with a position, id, whether they're the start (an output) or end
+ * (an input) of a connection, and the data type of data they carry.
+ */
+export interface ShapePort extends VecModel {
+  id: PortId;
+  terminal: 'start' | 'end';
+  dataType: PortDataType;
+  /** When true, this input port accepts multiple simultaneous connections. */
+  multi?: boolean;
+  /**
+   * 端口圆点颜色覆盖（节点标识色）。缺省时按 dataType 取 PORT_TYPE_COLORS。
+   * 用于创意 pipeline 节点：每个节点的输出/输入点用各自的标识色，而非统一的 dataType 色。
+   */
+  color?: string;
+}
+
+/**
+ * This react component renders a port with its data-type color.
+ */
+export function Port({ shapeId, portId }: { shapeId: TLShapeId; portId: PortId }) {
+  const editor = useEditor();
+  const port = useValue(
+    'port',
+    () => {
+      const shape = editor.getShape(shapeId);
+      if (!shape || !editor.isShapeOfType(shape, 'node')) return null;
+      return getNodePorts(editor, shape)?.[portId];
+    },
+    [shapeId, portId, editor],
+  );
+  if (!port) return null;
+
+  const isHinting = useValue(
+    'isHinting',
+    () => {
+      const { hintingPort } = portState.get(editor);
+      return hintingPort && hintingPort.portId === portId && hintingPort.shapeId === shapeId;
+    },
+    [editor, shapeId, portId],
+  );
+
+  const isEligible = useValue(
+    'isEligible',
+    () => {
+      const { eligiblePorts } = portState.get(editor);
+      if (!eligiblePorts) return false;
+      if (eligiblePorts.terminal !== port.terminal) return false;
+      if (eligiblePorts.excludeNodes?.has(shapeId)) return false;
+      // type compatibility: 'any' matches everything, otherwise types must match
+      if (
+        eligiblePorts.dataType &&
+        eligiblePorts.dataType !== 'any' &&
+        port.dataType !== 'any' &&
+        eligiblePorts.dataType !== port.dataType
+      )
+        return false;
+      return true;
+    },
+    [editor, shapeId, port.terminal, port.dataType],
+  );
+
+  // T0.6b：运行被拦截时，未连接的 required 端口高亮缺口。
+  const isMissingRequired = useValue(
+    'isMissingRequired',
+    () => missingRequiredPorts.get(editor).get(shapeId)?.has(portId) ?? false,
+    [editor, shapeId, portId],
+  );
+
+  const color = port.color ?? PORT_TYPE_COLORS[port.dataType];
+
+  return (
+    <div
+      className={classNames(
+        `Port Port_${port.terminal}`,
+        isHinting ? 'Port_hinting' : isEligible ? 'Port_eligible' : undefined,
+        isMissingRequired && 'Port_missing_required',
+      )}
+      style={
+        {
+          '--port-color': color,
+          '--port-y': `${port.y}px`,
+        } as React.CSSProperties
+      }
+      onPointerDown={() => {
+        editor.setCurrentTool('select.pointing_port', {
+          shapeId,
+          portId,
+          terminal: port.terminal,
+          dataType: port.dataType,
+        });
+      }}
+    />
+  );
+}

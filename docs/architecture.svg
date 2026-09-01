@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="950" viewBox="0 0 1600 950">
+  <defs>
+    <style>
+      .bg{fill:#11110f}.zone{fill:#181713;stroke:#5d594b;stroke-width:2}.card{fill:#26231d;stroke:#6c6656;stroke-width:2}.title{font:700 40px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;fill:#f7f3e8}.z{font:700 24px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;fill:#ffc249}.h{font:700 20px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;fill:#f7f3e8}.t{font:17px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;fill:#d8d3c7}.s{font:14px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;fill:#aaa596}.edge{stroke:#ffc249;stroke-width:3;fill:none;marker-end:url(#a)}.opt{stroke:#48b8d0;stroke-width:2.5;stroke-dasharray:9 7;fill:none;marker-end:url(#b)}
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0l10 5-10 5z" fill="#ffc249"/></marker>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0l10 5-10 5z" fill="#48b8d0"/></marker>
+  </defs>
+  <rect class="bg" width="1600" height="950"/>
+  <text class="title" x="55" y="68">跨境上架编译器 · 技术架构</text>
+  <text class="s" x="55" y="100">当前代码组成、可选外部能力与明确边界</text>
+
+  <rect class="zone" x="55" y="145" rx="22" width="410" height="585"/>
+  <text class="z" x="82" y="188">浏览器前端</text>
+  <rect class="card" x="90" y="225" rx="16" width="340" height="100"/><text class="h" x="115" y="265">Vite + React 19</text><text class="s" x="115" y="296">TypeScript · TanStack Query</text>
+  <rect class="card" x="90" y="365" rx="16" width="340" height="100"/><text class="h" x="115" y="405">tldraw 单页画布</text><text class="s" x="115" y="436">节点、端口、连线、画布交互</text>
+  <rect class="card" x="90" y="505" rx="16" width="150" height="120"/><text class="h" x="112" y="548">sku_listing</text><text class="s" x="112" y="580">唯一输入节点</text>
+  <rect class="card" x="280" y="505" rx="16" width="150" height="120"/><text class="h" x="300" y="548">listing_result</text><text class="s" x="300" y="580">平台 / 投放结果</text>
+  <path class="edge" d="M260 325V365"/><path class="edge" d="M260 465V490H165V505"/><path class="edge" d="M260 490H355V505"/>
+  <text class="s" x="90" y="680">NodeDefinitions 仅注册上述两类业务节点</text>
+
+  <rect class="zone" x="525" y="145" rx="22" width="600" height="700"/>
+  <text class="z" x="552" y="188">FastAPI 后端 :8788</text>
+  <rect class="card" x="560" y="225" rx="16" width="530" height="92"/><text class="h" x="585" y="262">app.py</text><text class="s" x="585" y="291">POST /api/listing/generate · GET /api/rules · /health</text>
+  <rect class="card" x="560" y="355" rx="16" width="530" height="102"/><text class="h" x="585" y="394">generate.py</text><text class="t" x="585" y="426">asyncio.gather：文本与图片并行</text>
+  <rect class="card" x="560" y="495" rx="16" width="250" height="125"/><text class="h" x="585" y="536">checker.py</text><text class="s" x="585" y="568">字符 / 五点 / BPA</text><text class="s" x="585" y="593">promo 模式；不验像素</text>
+  <rect class="card" x="840" y="495" rx="16" width="250" height="125"/><text class="h" x="865" y="536">images.py</text><text class="s" x="865" y="568">兼容图片接口</text><text class="s" x="865" y="593">统一输出 data URL</text>
+  <rect class="card" x="560" y="660" rx="16" width="250" height="115"/><text class="h" x="585" y="700">rules.yaml</text><text class="s" x="585" y="732">app.py 加载 · /api/rules 暴露</text>
+  <rect class="card" x="840" y="660" rx="16" width="250" height="115"/><text class="h" x="865" y="700">fallback_drafts</text><text class="s" x="865" y="732">本地确定性草稿</text>
+  <path class="edge" d="M825 317V355"/><path class="edge" d="M825 457V480H685V495"/><path class="edge" d="M825 480H965V495"/>
+  <path class="opt" d="M560 270H540V718H560"/>
+  <path class="edge" d="M965 660V640H825V635H685V620"/>
+
+  <rect class="zone" x="1185" y="145" rx="22" width="355" height="475"/>
+  <text class="z" x="1212" y="188">可选外部能力</text>
+  <rect class="card" x="1220" y="230" rx="16" width="285" height="90"/><text class="h" x="1245" y="268">upstream chat</text><text class="s" x="1245" y="297">文本第 1 级</text>
+  <rect class="card" x="1220" y="355" rx="16" width="285" height="100"/><text class="h" x="1245" y="395">兼容 chat/completions</text><text class="s" x="1245" y="426">文本第 2 级</text>
+  <rect class="card" x="1220" y="490" rx="16" width="285" height="100"/><text class="h" x="1245" y="530">兼容 images/generations</text><text class="s" x="1245" y="561">白底图 / 生活图</text>
+  <path class="opt" d="M1090 385C1160 385 1150 275 1220 275"/><path class="opt" d="M1090 405H1220"/><path class="opt" d="M1090 557H1220"/>
+
+  <path class="edge" d="M430 565C500 565 490 270 560 270"/>
+  <path class="edge" d="M560 565C500 565 500 585 430 585"/>
+
+  <rect x="1185" y="675" rx="20" width="355" height="170" fill="#2a1d18" stroke="#ff6b45" stroke-width="2"/>
+  <text class="z" x="1212" y="718" fill="#ff8c69">当前边界</text>
+  <text class="t" x="1212" y="756">不自动上架</text><text class="t" x="1212" y="790">checker 不读取图片像素</text><text class="t" x="1212" y="824">投放只下载 TXT 脚本</text>
+
+  <rect x="55" y="885" width="1485" height="2" fill="#5d594b"/>
+  <text class="s" x="55" y="918">输出路径：草稿 + checks + source + 可选 imageUrl → tldraw 结果节点 → 运营查看、复制标题、复核并自行提交</text>
+</svg>

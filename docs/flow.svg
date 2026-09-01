@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="950" viewBox="0 0 1600 950">
+  <defs>
+    <style>
+      .bg{fill:#11110f}.panel{fill:#211f19;stroke:#5d594b;stroke-width:2}.gold{fill:#ffc249}.green{fill:#43c767}.cyan{fill:#48b8d0}.red{fill:#ff6b45}.title{font:700 40px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;fill:#f7f3e8}.h{font:700 22px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;fill:#f7f3e8}.t{font:18px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;fill:#d8d3c7}.s{font:15px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;fill:#aaa596}.edge{stroke:#ffc249;stroke-width:3;fill:none;marker-end:url(#arrow)}.dash{stroke:#48b8d0;stroke-width:2.5;stroke-dasharray:9 7;fill:none;marker-end:url(#arrow2)}
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#ffc249"/></marker>
+    <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#48b8d0"/></marker>
+  </defs>
+  <rect class="bg" width="1600" height="950"/>
+  <text class="title" x="55" y="68">跨境上架编译器 · 真实运行流程</text>
+  <text class="s" x="55" y="100">一份 SKU 输入，编译为三台草稿与诊断；最终由运营人工提交</text>
+
+  <rect class="panel" x="55" y="165" rx="18" width="235" height="150"/>
+  <rect class="gold" x="75" y="187" rx="4" width="14" height="14"/>
+  <text class="h" x="102" y="203">SKU 输入</text>
+  <text class="t" x="75" y="242">品名 · 卖点 · 平台</text><text class="t" x="75" y="274">最多 3 张前端图片</text>
+  <text class="s" x="75" y="302">tldraw / sku_listing</text>
+
+  <rect class="panel" x="350" y="165" rx="18" width="260" height="150"/>
+  <text class="h" x="375" y="204">FastAPI 请求</text>
+  <text class="t" x="375" y="244">POST</text><text class="t" x="375" y="274">/api/listing/generate</text>
+  <text class="s" x="375" y="302">JSON 请求与响应</text>
+  <path class="edge" d="M290 240H350"/>
+
+  <rect class="panel" x="675" y="145" rx="18" width="475" height="395"/>
+  <text class="h" x="705" y="188">文本支路 · 三级降级</text>
+  <rect x="705" y="220" width="405" height="68" rx="12" fill="#2d2a22" stroke="#43c767" stroke-width="2"/>
+  <circle class="green" cx="735" cy="254" r="15"/><text class="h" x="730" y="262" font-size="16">1</text>
+  <text class="t" x="765" y="260">upstream chat（可选）</text>
+  <rect x="705" y="315" width="405" height="68" rx="12" fill="#2d2a22" stroke="#43c767" stroke-width="2"/>
+  <circle class="green" cx="735" cy="349" r="15"/><text class="h" x="730" y="357" font-size="16">2</text>
+  <text class="t" x="765" y="355">OpenAI 兼容 LLM（可选）</text>
+  <rect x="705" y="410" width="405" height="68" rx="12" fill="#2d2a22" stroke="#43c767" stroke-width="2"/>
+  <circle class="green" cx="735" cy="444" r="15"/><text class="h" x="730" y="452" font-size="16">3</text>
+  <text class="t" x="765" y="450">fallback_drafts（本地）</text>
+  <path class="edge" d="M910 288V315"/><path class="edge" d="M910 383V410"/>
+  <text class="s" x="705" y="510">前一级失败或未配置，才进入下一级；响应返回 source</text>
+  <path class="edge" d="M610 220H675"/>
+
+  <rect class="panel" x="675" y="600" rx="18" width="475" height="160"/>
+  <text class="h" x="705" y="643">图片支路 · 可选</text>
+  <text class="t" x="705" y="682">兼容 /images/generations</text>
+  <text class="t" x="705" y="715">成功：白底图 / 生活图 → data URL</text>
+  <text class="s" x="705" y="744">失败或未配置：返回空图片结果，文本继续</text>
+  <path class="dash" d="M610 265C640 265 635 680 675 680"/>
+
+  <rect class="panel" x="1215" y="165" rx="18" width="325" height="150"/>
+  <text class="h" x="1240" y="205">checker.py</text>
+  <text class="t" x="1240" y="244">字符 · 五点 · BPA</text>
+  <text class="t" x="1240" y="276">promo 素材用途</text>
+  <text class="s" x="1240" y="302">不读取图片像素</text>
+  <path class="edge" d="M1150 240H1215"/>
+
+  <rect class="panel" x="1215" y="390" rx="18" width="325" height="190"/>
+  <text class="h" x="1240" y="432">三台结果节点</text>
+  <text class="t" x="1240" y="471">Amazon</text><text class="t" x="1240" y="505">TikTok Shop</text><text class="t" x="1240" y="539">Shopify</text>
+  <text class="s" x="1240" y="565">listing_result · 草稿 + checks</text>
+  <path class="edge" d="M1378 315V390"/>
+  <path class="dash" d="M1150 680C1230 680 1170 500 1215 500"/>
+
+  <rect class="panel" x="1215" y="650" rx="18" width="325" height="195"/>
+  <text class="h" x="1240" y="692">人工交付</text>
+  <text class="t" x="1240" y="730">查看 · 复制标题 · 复核</text>
+  <text class="t" x="1240" y="765">运营到平台后台提交</text>
+  <text class="s" x="1240" y="805">可选：下载 15 秒分镜 TXT</text>
+  <path class="edge" d="M1378 580V650"/>
+
+  <rect x="55" y="820" rx="14" width="1020" height="70" fill="#18262a" stroke="#48b8d0" stroke-width="2"/>
+  <text class="t" x="80" y="850">rules.yaml：保存规则摘录、来源 URL 与日期；当前 checker 只实现确定性规则子集</text>
+  <text class="s" x="80" y="877">边界：不自动上架 · 不担保审核结果 · 投放输出不是视频文件</text>
+</svg>

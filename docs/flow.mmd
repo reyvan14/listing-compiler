@@ -1,0 +1,27 @@
+flowchart LR
+    A[SKU 输入<br/>品名 / 卖点 / 平台 / 图片] --> B[sku_listing<br/>tldraw 节点]
+    B --> C[POST /api/listing/generate]
+    C --> D{并行编排}
+
+    D --> T1[1. upstream chat]
+    T1 -->|失败或未配置| T2[2. OpenAI 兼容 LLM]
+    T2 -->|失败或未配置| T3[3. fallback_drafts]
+    T1 --> X[结构化平台草稿]
+    T2 --> X
+    T3 --> X
+
+    D --> I[/images/generations]
+    I -->|成功| U[白底图 / 生活图<br/>data URL]
+    I -->|失败| N[空图片结果<br/>文本继续]
+
+    X --> K[checker.py<br/>字段与模式检查]
+    K --> R[Amazon / TikTok Shop / Shopify<br/>listing_result 节点]
+    U --> R
+    N --> R
+    R --> H[人工查看 / 复制标题 / 复核]
+    H --> P[运营到各平台后台自行提交]
+
+    R -. 可选 .-> S[15 秒投放分镜]
+    S --> TXT[下载 TXT 脚本]
+
+    Y[rules.yaml<br/>规则摘录 / 来源 / 日期] -. app.py 加载 .-> Q[GET /api/rules 可读取]

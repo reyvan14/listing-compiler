@@ -1,0 +1,43 @@
+flowchart TB
+    subgraph Browser[浏览器]
+      UI[Vite + React]
+      TD[tldraw 单页画布]
+      SKU[sku_listing]
+      RES[listing_result]
+      UI --> TD
+      TD --> SKU
+      TD --> RES
+    end
+
+    subgraph API[FastAPI :8788]
+      APP[app.py<br/>POST /api/listing/generate<br/>GET /api/rules]
+      GEN[generate.py<br/>asyncio.gather]
+      CHECK[checker.py<br/>字符 / 五点 / BPA / promo]
+      RULES[rules.yaml<br/>公开规则摘录]
+      FALL[fallback_drafts]
+      IMG[images.py<br/>data URL]
+      APP --> GEN
+      RULES --> APP
+      GEN --> CHECK
+      FALL --> CHECK
+      GEN --> IMG
+    end
+
+    subgraph Optional[可选外部能力]
+      UP[upstream chat]
+      LLM[OpenAI 兼容<br/>chat/completions]
+      IMAGEAPI[OpenAI 兼容<br/>images/generations]
+    end
+
+    SKU -->|HTTP JSON| APP
+    CHECK -->|草稿 + checks + source| RES
+    IMG -->|可选 imageUrl| RES
+    GEN --> UP
+    GEN --> LLM
+    GEN --> FALL
+    IMG --> IMAGEAPI
+
+    RES --> HUMAN[运营查看 / 复制标题 / 人工提交]
+
+    LIMIT[边界：不自动上架<br/>checker 不验像素<br/>投放仅下载 TXT]
+    HUMAN --- LIMIT
