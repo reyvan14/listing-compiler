@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 import migration
 import policy
 from agent import agent_reply
+from checker import apply_checks
 from generate import generate_drafts
 from media import generate_media_image, generate_media_video
 from media_errors import MediaError
@@ -67,6 +68,37 @@ async def listing_generate(body: GenerateBody):
 @app.post("/api/generate")
 async def generate_alias(body: GenerateBody):
     return await _generate(body)
+
+
+class ValidateBody(BaseModel):
+    """Re-grade already-generated drafts against the current policy snapshots."""
+
+    drafts: list[dict[str, Any]] = Field(default_factory=list)
+    product_name: str = ""
+    points: str = ""
+    asset_mode: Literal["compliant", "promo"] = "compliant"
+
+
+@app.post("/api/listing/validate")
+def listing_validate(body: ValidateBody):
+    """Run the deterministic checker over supplied drafts.
+
+    Same code path as generation, so an edited or externally-supplied title is
+    graded by exactly the rules that gate a generated one. No model is called.
+    """
+    out = []
+    for draft in body.drafts:
+        if not isinstance(draft, dict) or draft.get("id") not in ("amazon", "tiktok", "shopify"):
+            continue
+        out.append(
+            apply_checks(
+                draft,
+                product_name=body.product_name,
+                points=body.points,
+                asset_mode=body.asset_mode,
+            )
+        )
+    return {"code": 0, "data": {"drafts": out}}
 
 
 class MediaImageBody(BaseModel):

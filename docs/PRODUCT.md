@@ -55,12 +55,33 @@
 ## checker 当前覆盖
 
 1. Amazon 标题上限、禁用字符、同词重复上限与五点数量。
-2. TikTok Shop 标题字符数采用较保守的 25–200 发布规则；官方质量分层页另写 25–255，差异已记录在 `api/policy/snapshots/tiktok-us-current.yaml`，不混写为统一硬性阈值。
+2. TikTok Shop 标题合规（见下）。
 3. Shopify 标题与长描述。
 4. 非 Shopify 草稿中的 BPA-Free 关键词。
 5. promo 模式下的货架图片用途冲突。
 
 checker 不读取图片像素，不验证背景 RGB、图片文字或主体占比。政策包中的「白底主图」类规则标记为说明性，不做机械判定。
+
+### TikTok Shop 标题合规
+
+真实生产接口测试发现：模型会生成社交口播式标题（表情 + 话题标签 + 标题党开头），而旧校验放行。
+现按 `api/policy/snapshots/tiktok-us-current.yaml` 逐条机械校验，每条违规在结果卡上单独成行，
+带说明、问题片段与建议改法：
+
+| 规则 ID | 级别 | 依据 |
+|---|---|---|
+| `tiktok.title.min_length` / `max_length` | warn | 原文 “Product titles should be between 25-200 characters”。官方质量分层页另写 25–255，差异已记录，取较保守的 25–200。 |
+| `tiktok.title.no_hashtags` | **阻断** | 原文禁用符号表内含 `#`。话题标签移入独立的「社交文案」字段。 |
+| `tiktok.title.prohibited_chars` | **阻断** | 原文 “Avoid symbols and special characters (~ ! * $ ? _ { } # < > \| ; ^ ¬ ¦)”。 |
+| `tiktok.title.no_promotional_language` | **阻断** | 原文 “Avoid marketing material, promotions, or subjective comments…”。含标题党开头（Stop carrying…、You won't believe…、Must-have、Best ever 等）。 |
+| `tiktok.title.no_emoji` | **阻断** | **本工具保守推导**：官方只写 “symbols and special characters”，未逐字点名 emoji；本工具按符号从严拦截。不得对外表述为平台原文。 |
+| `tiktok.title.structure` | warn | 依据 “Add important information such as: Brand, Product type, Key features…, Size or quantity”。要求标题以品牌/品类开头，含事实属性与规格。官方为建议措辞，故为 warn。 |
+
+阻断违规的处理：草稿状态置为 `needs_human_review`，结果卡显示阻断闸门与确定性「建议标题」，
+**不会被静默沿用、不会自动上架**；迁移 `apply` 也拒绝把带阻断违规的产物标记为 `applied`
+（即便本次迁移与标题规则无关）。人工复核与回滚行为保持不变。
+
+`POST /api/listing/validate` 用同一套 `apply_checks` 重新评级外部或人工修改过的草稿，不调用模型。
 
 ## 产品边界
 

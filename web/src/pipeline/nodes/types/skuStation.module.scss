@@ -454,3 +454,59 @@
     color: #ff9c7a;
   }
 }
+
+/* 阻断违规闸门：红色只用于阻断项 */
+.blockGate {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 8px 0 6px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: rgba(255, 118, 73, 0.14);
+  border-left: 3px solid #ff7649;
+
+  b {
+    font-size: 12px;
+    color: #ff9c7a;
+  }
+  small {
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: #d9b9ae;
+  }
+}
+
+.suggestTitle {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #7ee0b0;
+  word-break: break-word;
+}
+
+.blockTag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-style: normal;
+  font-size: 10px;
+  background: rgba(255, 118, 73, 0.22);
+  color: #ff9c7a;
+}
+
+.checks li[data-blocking='1'] {
+  background: rgba(255, 118, 73, 0.07);
+  border-radius: 4px;
+}
+
+.evidence {
+  color: #d9b9ae;
+  word-break: break-word;
+}
+
+.suggestion {
+  color: #7ee0b0;
+  word-break: break-word;
+}

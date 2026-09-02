@@ -26,10 +26,22 @@ Schema:
 {{"drafts":[{{"id":"amazon|tiktok|shopify","title":"string","fields":[{{"label":"string","value":"string"}}]}}]}}
 Rules:
 - amazon fields: 五点 1..5, 搜索词, 详情规划
-- tiktok fields: 描述, 标题长度, 商品视频位
+- tiktok fields: 描述, 标题长度, 商品视频位, 社交文案
 - shopify fields: 长描述, 媒体
 - English copy for US. Do not claim certificates. Do not say published.
 - Amazon title <= 200 chars. TikTok title 25-200 chars.
+
+TikTok Shop product titles are PRODUCT titles, not social captions. The title must:
+- Lead with brand and/or product type, then key factual attributes, then size/capacity.
+  Example: "AeroFold Collapsible Silicone Travel Cup, Leak-Proof Lid, Folds to 4.5cm, 350ml"
+- Contain NO emoji or pictographs of any kind.
+- Contain NO hashtags. Put every hashtag in the separate "社交文案" field instead,
+  space separated (leave that field's value empty if there are none).
+- Contain NO marketing, promotional or subjective language, and no clickbait opening
+  such as "Stop carrying...", "You won't believe...", "Must-have", "Best ever",
+  "Meet the...", "Best Seller", "TikTok Exclusive", "20% off", "free shipping".
+- Contain none of these symbols: ~ ! * $ ? _ {{ }} < > | ; ^ ¬ ¦
+Write the hook copy in the 描述 field if you want one; never in the title.
 """
 
 

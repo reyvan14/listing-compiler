@@ -12,7 +12,10 @@
 - `api/`：FastAPI，核心接口为 `POST /api/listing/generate`。
 - 文本：upstream → Token Plan（OpenAI 兼容 chat）→ `fallback_drafts` 三级降级。
 - 图片 / 视频：兼容旧供应商与 Token Plan 专用协议，成功结果以可播放 URL 返回。
-- 检查：`checker.py` 只检查字段内容与素材模式，不读取图片像素。
+- 检查：`checker.py` 只检查字段内容与素材模式，不读取图片像素。TikTok Shop 标题另有一组
+  机械合规规则（禁表情、禁话题标签、禁营销/标题党用语、禁特殊字符、结构建议），违规逐条给出
+  说明、问题片段与建议改法；命中阻断项的草稿置为「需人工复核」，不会被静默沿用。
+  `POST /api/listing/validate` 可用同一套规则重新评级外部或人工修改过的草稿。
 - 规则：`api/policy/snapshots/*.yaml` 版本化、可执行的政策包；`GET /api/rules` 由「当前」快照拼装，保持向后兼容。
 - 投放：下载 15 秒分镜 TXT，不生成视频文件。
 - 边界：不自动上架、不做自动化平台发布，不担保审核结果。状态用词始终真实（current / stale / candidate /

@@ -8,6 +8,13 @@ export type CheckItem = {
   label: string;
   state: CheckState;
   detail: string;
+  /** What the operator should do about it. Present on violations only. */
+  suggestion?: string;
+  /** A blocking violation: the listing is held for human review, never carried
+   * forward silently. */
+  blocking?: boolean;
+  /** The offending substrings, so the UI can point at them. */
+  evidence?: string[];
 };
 
 export type DraftField = {
@@ -28,6 +35,12 @@ export type PlatformDraft = {
   imageLabel: string;
   imageUrl?: string;
   checks: CheckItem[];
+  /** deterministic suggested replacement title when the generated one violates
+   * a blocking platform rule */
+  suggestedTitle?: string;
+  /** true when a blocking platform rule failed — the draft is held for human
+   * review and must never be carried forward silently */
+  hasBlockingViolations?: boolean;
   /** dependency metadata for the self-healing migration workflow */
   titleFactRefs?: string[];
   policyVersion?: string;

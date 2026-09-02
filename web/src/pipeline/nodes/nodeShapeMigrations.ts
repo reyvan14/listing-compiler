@@ -73,6 +73,8 @@ export const nodeShapeVersions = createShapePropsMigrationIds('node', {
 	// 自愈式 Listing CI/CD：listing_result 新增依赖元数据（artifactId/policyVersion/
 	// factRefs/fieldMeta）与迁移状态（migrationStatus/staleReason）。
 	AddListingMigrationFields: 22,
+	// TikTok 合规闸门：check 新增 suggestion/blocking/evidence，节点新增 suggestedTitle。
+	AddListingComplianceFields: 23,
 })
 
 // 图片/视频「类型」改为传英文码（显示中文、存英文）。旧的中文值/缺失统一回填为默认。
@@ -228,6 +230,18 @@ export function backfillNodeProps(node: Record<string, unknown>): Record<string,
 			if (!Array.isArray(node.fieldMeta)) node.fieldMeta = []
 			node.migrationStatus ??= 'current'
 			node.staleReason ??= ''
+			// 合规闸门字段：旧结果卡的 check 缺 suggestion/blocking/evidence（T.object 严格校验），
+			// 逐条补齐；节点补 suggestedTitle。旧卡未跑过新校验，一律按无阻断处理。
+			node.suggestedTitle ??= ''
+			if (Array.isArray(node.checks)) {
+				node.checks = node.checks.map((raw) => {
+					const check = { ...(raw as Record<string, unknown>) }
+					check.suggestion ??= ''
+					check.blocking ??= false
+					if (!Array.isArray(check.evidence)) check.evidence = []
+					return check
+				})
+			}
 			break
 		case 'load_image':
 			node.thumbnailUrl ??= null
@@ -491,6 +505,15 @@ export const nodeShapeMigrations = createShapePropsMigrationSequence({
 		{
 			// listing_result：补依赖元数据 + 迁移状态（backfillNodeProps 累积且幂等）。
 			id: nodeShapeVersions.AddListingMigrationFields,
+			up: (props) => ({
+				...props,
+				node: backfillNodeProps({ ...(props.node as Record<string, unknown>) }),
+			}),
+			down: 'retired',
+		},
+		{
+			// listing_result：补 check 的 suggestion/blocking/evidence 与 suggestedTitle。
+			id: nodeShapeVersions.AddListingComplianceFields,
 			up: (props) => ({
 				...props,
 				node: backfillNodeProps({ ...(props.node as Record<string, unknown>) }),

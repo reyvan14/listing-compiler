@@ -144,20 +144,21 @@ def test_current_tiktok_title_thresholds_are_25_to_200():
     rules = snap.rule_map()
     assert rules["tiktok.title.min_length"].params["min"] == 25
     assert rules["tiktok.title.max_length"].params["max"] == 200
-    # and the checker's hard-coded band must not drift from the snapshot
+    # and the checker must evaluate the band straight from the snapshot
     import checker
 
-    out_ok = checker.apply_checks(
-        {"id": "tiktok", "title": "t" * 25, "fields": []},
+    at_floor = checker.apply_checks(
+        {"id": "tiktok", "title": "Travel Cup, Silicone, 350ml", "fields": []},
         product_name="C", points="x", asset_mode="compliant",
     )
-    out_bad = checker.apply_checks(
+    below_floor = checker.apply_checks(
         {"id": "tiktok", "title": "t" * 24, "fields": []},
         product_name="C", points="x", asset_mode="compliant",
     )
     states = lambda o: {c["id"]: c["state"] for c in o["checks"]}
-    assert states(out_ok)["title"] == "pass"
-    assert states(out_bad)["title"] == "fix"
+    assert len(at_floor["title"]) >= 25
+    assert states(at_floor)["title"] == "pass"
+    assert states(below_floor)["min_length"] == "fix"
 
 
 def test_legacy_rules_endpoint_shape_is_backward_compatible():

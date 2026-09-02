@@ -60,6 +60,14 @@ function isListingShape(editor: Editor, s: TLShape): boolean {
   return t === 'sku_listing' || t === 'listing_result'
 }
 
+/** A CheckItem as persisted on a shape: the optional compliance fields are
+ * always materialised, because the tldraw T.object validator is strict. */
+export type StoredCheckItem = CheckItem & {
+  suggestion: string
+  blocking: boolean
+  evidence: string[]
+}
+
 export type ListingResultNode = {
   type: 'listing_result'
   platform: PlatformId | 'ad'
@@ -69,9 +77,10 @@ export type ListingResultNode = {
   fields: { label: string; value: string }[]
   imageUrl: string
   imageLabel: string
-  checks: CheckItem[]
+  checks: StoredCheckItem[]
   script: string[]
   note: string
+  suggestedTitle: string
   // self-healing Listing CI/CD dependency metadata (see ListingResultNode.tsx)
   artifactId: string
   policyVersion: string
@@ -343,9 +352,26 @@ export function resultBodyHeightPx(node: ListingResultNode): number {
   const reasonH = reason && reason.state !== 'pass' && reason.detail ? 40 : 0
   const checksH = node.checks.reduce((sum, check) => {
     const detailLines = check.detail ? Math.min(2, estimateTextLines(check.detail, inner - 8, 12)) : 0
-    return sum + 22 + detailLines * 16
+    // violation rows also carry an evidence line and a suggested correction
+    const evidenceLines = check.evidence?.length
+      ? Math.min(2, estimateTextLines(check.evidence.join(' '), inner - 8, 11.5))
+      : 0
+    const suggestionLines = check.suggestion
+      ? Math.min(3, estimateTextLines(check.suggestion, inner - 8, 11.5))
+      : 0
+    return sum + 22 + (detailLines + evidenceLines + suggestionLines) * 16
   }, 18)
-  return migrationBanner + 28 + reasonH + 118 + 16 + titleLines * 20 + 10 + fieldsH + checksH + 32
+  // the blocking-violation gate above the checks list
+  const blockingCount = node.checks.filter(c => c.blocking).length
+  const gateH = blockingCount
+    ? 42 +
+      (node.suggestedTitle
+        ? Math.min(3, estimateTextLines(node.suggestedTitle, inner - 8, 11)) * 16
+        : 0)
+    : 0
+  return (
+    migrationBanner + 28 + reasonH + 118 + 16 + titleLines * 20 + 10 + fieldsH + gateH + checksH + 32
+  )
 }
 
 export function resultImageUrl(platform: ListingResultNode['platform'], mode: AssetMode): string {
@@ -360,6 +386,20 @@ export function worstCheck(checks: CheckItem[]): CheckItem['state'] {
   return 'pass'
 }
 
+/** Fill in the optional compliance fields so every persisted check matches the
+ * strict ListingResultNode validator. */
+function normalizeChecks(checks: CheckItem[]): StoredCheckItem[] {
+  return (checks ?? []).map(c => ({
+    id: c.id,
+    label: c.label,
+    state: c.state,
+    detail: c.detail,
+    suggestion: c.suggestion ?? '',
+    blocking: c.blocking ?? false,
+    evidence: c.evidence ?? [],
+  }))
+}
+
 function draftToResult(draft: PlatformDraft, mode: AssetMode): ListingResultNode {
   return {
     type: 'listing_result',
@@ -370,9 +410,10 @@ function draftToResult(draft: PlatformDraft, mode: AssetMode): ListingResultNode
     fields: draft.fields.map(f => ({ label: f.label, value: f.value })),
     imageUrl: draft.imageUrl || resultImageUrl(draft.id, mode),
     imageLabel: draft.imageLabel,
-    checks: draft.checks,
+    checks: normalizeChecks(draft.checks),
     script: [],
     note: '',
+    suggestedTitle: draft.suggestedTitle ?? '',
     artifactId: draft.id,
     policyVersion: draft.policyVersion ?? '',
     factRefs: draft.titleFactRefs ?? [],
@@ -398,16 +439,17 @@ function adResult(mode: AssetMode): ListingResultNode {
     ],
     imageUrl: resultImageUrl('ad', mode),
     imageLabel: '9:16 封面',
-    checks: [
+    checks: normalizeChecks([
       {
         id: 'ad',
         label: '投放条',
         state: 'ad-only',
         detail: AD_CUT.note,
       },
-    ],
+    ]),
     script: AD_CUT.script,
     note: AD_CUT.note,
+    suggestedTitle: '',
     artifactId: 'ad',
     policyVersion: '',
     factRefs: [],

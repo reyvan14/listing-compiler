@@ -110,9 +110,14 @@ function normalizeDraft(raw: Record<string, any>): PlatformDraft | null {
           label: String(check.label ?? ''),
           state: check.state,
           detail: String(check.detail ?? ''),
+          suggestion: String(check.suggestion ?? ''),
+          blocking: !!check.blocking,
+          evidence: Array.isArray(check.evidence) ? check.evidence.map(String) : [],
         },
       ];
     }),
+    suggestedTitle: String(raw.suggestedTitle ?? raw.suggested_title ?? ''),
+    hasBlockingViolations: !!(raw.hasBlockingViolations ?? raw.has_blocking_violations),
   };
 }
 

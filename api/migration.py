@@ -702,11 +702,29 @@ def apply_patches(
                 text = f"{f.get('label', '')} {f.get('value', '')}"
                 f["fact_refs"] = skufacts.compute_fact_refs(text, facts_after)
 
-        # re-run deterministic checks against the (candidate) policy
+        # Re-run deterministic checks. The artifact is always validated against
+        # the snapshot in force for its OWN platform, and additionally against
+        # the candidate snapshot when this migration targets that platform.
+        # Without the own-platform pass, a listing carrying a blocking violation
+        # unrelated to the migration (e.g. an emoji in a TikTok title during a
+        # SKU-drift migration) would be marked 'applied' and carried forward
+        # silently.
         artifact_checks: list[dict[str, Any]] = []
         blocking = False
-        if candidate_snap is not None and artifact.get("platform") == candidate_snap.platform:
-            results = policy.evaluate_snapshot(candidate_snap, {"title": artifact.get("title", "")})
+        platform = artifact.get("platform")
+        # The candidate snapshot *replaces* the current one for the platform the
+        # migration targets — that is what the migration adopts. Every other
+        # platform is still judged by the snapshot in force for it.
+        snap = None
+        if candidate_snap is not None and platform == candidate_snap.platform:
+            snap = candidate_snap
+        elif platform:
+            try:
+                snap = policy.current_snapshot(platform)
+            except policy.PolicyError:  # pragma: no cover - unknown platform
+                snap = None
+        if snap is not None:
+            results = policy.evaluate_snapshot(snap, {"title": artifact.get("title", "")})
             artifact_checks = [r.to_dict() for r in results if r.checkable]
             blocking = bool(policy.blocking_failures(results))
         checks[aid] = artifact_checks

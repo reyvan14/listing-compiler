@@ -31,6 +31,10 @@ KNOWN_KINDS: dict[str, tuple[str, ...]] = {
     "title_min_length": ("min",),
     "prohibited_chars": ("chars",),
     "repeated_word_limit": ("limit",),
+    "no_emoji": (),
+    "no_hashtags": (),
+    "promotional_language": (),
+    "title_structure": (),
     "image_white_background": (),
     "text": (),
 }
@@ -169,6 +173,13 @@ def _parse_rule(raw: Mapping[str, Any], where: str) -> PolicyRule:
             raise PolicyError(f"{where}: rule '{rid}' param 'exempt' must be a list")
     if kind == "prohibited_chars" and not str(params["chars"]):
         raise PolicyError(f"{where}: rule '{rid}' param 'chars' must be a non-empty string")
+    if kind == "promotional_language":
+        for key in ("openers", "phrases"):
+            if key in params and not isinstance(params[key], (list, tuple)):
+                raise PolicyError(f"{where}: rule '{rid}' param '{key}' must be a list")
+    if kind == "title_structure" and "require_size" in params:
+        if not isinstance(params["require_size"], bool):
+            raise PolicyError(f"{where}: rule '{rid}' param 'require_size' must be a boolean")
     return PolicyRule(
         id=rid,
         kind=kind,

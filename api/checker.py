@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 import skufacts
+import tiktok_title
 
 try:  # policy pack is optional at import time (keeps checker importable in isolation)
     import policy as _policy
@@ -51,8 +52,29 @@ def _policy_version(platform: str) -> str:
         return ""
 
 
-def _check(item_id: str, label: str, state: str, detail: str) -> dict[str, str]:
-    return {"id": item_id, "label": label, "state": state, "detail": detail}
+def _check(
+    item_id: str,
+    label: str,
+    state: str,
+    detail: str,
+    *,
+    suggestion: str = "",
+    blocking: bool = False,
+    evidence: "list[str] | tuple[str, ...]" = (),
+) -> dict[str, Any]:
+    """One mechanical check result.
+
+    ``blocking`` marks a violation that must not be silently carried forward:
+    the draft is stamped ``needs_human_review`` and cannot be auto-applied.
+    """
+    out: dict[str, Any] = {"id": item_id, "label": label, "state": state, "detail": detail}
+    if suggestion:
+        out["suggestion"] = suggestion
+    if blocking:
+        out["blocking"] = True
+    if evidence:
+        out["evidence"] = list(evidence)
+    return out
 
 
 def _has_bpa_claim(product_name: str, points: str, title: str) -> bool:
@@ -97,6 +119,87 @@ def image_check(platform: str, asset_mode: str) -> dict[str, str]:
         "pass",
         "商品卡主图无加字。注意：这不是投放封面。",
     )
+
+
+#: Rule ids whose failures are reported as individual, actionable UI rows.
+_TIKTOK_TITLE_RULE_LABELS = {
+    "tiktok.title.min_length": "标题长度下限",
+    "tiktok.title.max_length": "标题长度上限",
+    "tiktok.title.no_hashtags": "标题禁话题标签",
+    "tiktok.title.prohibited_chars": "标题禁特殊字符",
+    "tiktok.title.no_promotional_language": "标题禁营销用语",
+    "tiktok.title.no_emoji": "标题禁表情符号",
+    "tiktok.title.structure": "标题结构",
+}
+
+
+def _tiktok_title_checks(title: str) -> list[dict[str, Any]]:
+    """Run the TikTok title rules from the current policy snapshot.
+
+    Each failure becomes its own check row carrying the explanation, the
+    offending substrings, and a deterministic suggested correction, so the UI
+    can show the operator exactly what to fix. Blocking failures are marked so
+    the listing cannot be carried forward silently.
+    """
+    if _policy is None:  # pragma: no cover - defensive
+        return []
+    try:
+        snapshot = _policy.current_snapshot("tiktok")
+        results = [
+            r
+            for r in _policy.evaluate_snapshot(snapshot, {"title": title})
+            if r.checkable and r.rule_id.startswith("tiktok.title.")
+        ]
+    except Exception:  # pragma: no cover - defensive fallback
+        return []
+
+    failures = [r for r in results if not r.ok]
+    if not failures:
+        return [
+            _check(
+                "title",
+                "标题规则",
+                "pass",
+                "长度合规，无表情、话题标签、特殊字符或营销用语，结构为品类 + 属性 + 规格。",
+            )
+        ]
+
+    suggested = tiktok_title.suggest_title(title)
+    rows: list[dict[str, Any]] = []
+    for result in failures:
+        rows.append(
+            _check(
+                result.rule_id.rsplit(".", 1)[-1] if result.rule_id != "tiktok.title" else "title",
+                _TIKTOK_TITLE_RULE_LABELS.get(result.rule_id, result.rule_id),
+                "fix",
+                result.detail,
+                suggestion=(
+                    f"{result.suggestion} 建议标题：{suggested}"
+                    if suggested and suggested != title
+                    else result.suggestion
+                ),
+                blocking=result.severity == "blocking",
+                evidence=result.evidence,
+            )
+        )
+    return rows
+
+
+def tiktok_social_caption_field(title: str) -> "dict[str, Any] | None":
+    """The optional social-caption field carrying hashtags lifted out of *title*.
+
+    Returns ``None`` when the title has no hashtags — the field is optional and
+    no copy is invented.
+    """
+    caption = tiktok_title.social_caption(title)
+    if not caption:
+        return None
+    return {
+        "label": tiktok_title.SOCIAL_CAPTION_LABEL,
+        "value": caption,
+        "field": "social-caption",
+        "factRefs": [],
+    }
 
 
 def apply_checks(
@@ -176,15 +279,14 @@ def apply_checks(
             )
         )
     elif platform == "tiktok":
-        ok = 25 <= len(title) <= 200
-        checks.append(
-            _check(
-                "title",
-                "标题 25–200",
-                "pass" if ok else "fix",
-                "短标题落在卖家大学 Listing 区间内。" if ok else f"标题 {len(title)} 字符，规则是 25–200。",
-            )
-        )
+        checks.extend(_tiktok_title_checks(title))
+        # Hashtags belong in an optional social caption, never in the product
+        # title. Lift them into their own field if the model left them inline
+        # and the draft does not already carry one.
+        if not any(f["field"] == "social-caption" for f in fields):
+            caption = tiktok_social_caption_field(title)
+            if caption:
+                fields.append(caption)
     else:
         desc = next((str(f.get("value") or "") for f in fields if "描述" in str(f.get("label") or "")), "")
         ok = bool(title.strip()) and len(desc) >= 40
@@ -211,6 +313,7 @@ def apply_checks(
 
     meta = LANE_META[platform]
     title_refs = _refs(title) or (["name"] if "name" in facts else [])
+    blocking = [c for c in checks if c.get("blocking")]
     return {
         "id": platform,
         "name": meta["name"],
@@ -224,4 +327,12 @@ def apply_checks(
         "policyVersion": _policy_version(platform),
         "factIds": fact_ids,
         "skuRevision": skufacts.sku_revision_hash(facts),
+        # A draft with blocking violations must never be carried forward
+        # silently; it is held for human review.
+        "hasBlockingViolations": bool(blocking),
+        "blockingRuleIds": [c["id"] for c in blocking],
+        "status": "needs_human_review" if blocking else "current",
+        "suggestedTitle": (
+            tiktok_title.suggest_title(title) if platform == "tiktok" and blocking else ""
+        ),
     }

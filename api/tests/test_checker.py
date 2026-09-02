@@ -37,10 +37,23 @@ def test_amazon_title_fix_when_over_200():
 
 
 def test_tiktok_title_range():
-    ok = checker.apply_checks({"id": "tiktok", "title": "t" * 40, "fields": []}, product_name="C", points="x", asset_mode="compliant")
-    bad = checker.apply_checks({"id": "tiktok", "title": "short", "fields": []}, product_name="C", points="x", asset_mode="compliant")
+    """TikTok title rules are now reported one row per rule (see test_tiktok_title.py).
+
+    A clean, in-range product title collapses to the single 'title' pass row;
+    a too-short one raises the min-length row instead.
+    """
+    ok = checker.apply_checks(
+        {"id": "tiktok", "title": "Silicone Travel Cup, Leak-Proof Lid, 350ml", "fields": []},
+        product_name="C", points="x", asset_mode="compliant",
+    )
+    bad = checker.apply_checks(
+        {"id": "tiktok", "title": "short", "fields": []},
+        product_name="C", points="x", asset_mode="compliant",
+    )
     assert states(ok)["title"] == "pass"
-    assert states(bad)["title"] == "fix"
+    assert ok["status"] == "current"
+    assert states(bad)["min_length"] == "fix"
+    assert "title" not in states(bad)
 
 
 def test_shopify_copy_needs_title_and_long_description():

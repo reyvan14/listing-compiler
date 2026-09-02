@@ -35,10 +35,17 @@ export const ListingResultNode = T.object({
       label: T.string,
       state: T.literalEnum('pass', 'fix', 'ad-only'),
       detail: T.string,
+      // Compliance-violation extras. Always present (possibly empty) so the
+      // strict T.object validator accepts every persisted card.
+      suggestion: T.string,
+      blocking: T.boolean,
+      evidence: T.arrayOf(T.string),
     }),
   ),
   script: T.arrayOf(T.string),
   note: T.string,
+  /** Deterministic suggested replacement title, when one can be derived. */
+  suggestedTitle: T.string,
   // ---- self-healing Listing CI/CD dependency metadata --------------------
   // Stable artifact id (= platform for a listing card), the policy version this
   // card was compiled against, the SKU fact IDs the title depends on, and a
@@ -90,6 +97,7 @@ export class ListingResultNodeDefinition extends NodeDefinition<ListingResultNod
       checks: [],
       script: [],
       note: '',
+      suggestedTitle: '',
       artifactId: '',
       policyVersion: '',
       factRefs: [],
@@ -161,6 +169,7 @@ function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingR
   const copyLabel =
     copied === 'ok' ? '已复制标题' : copied === 'err' ? '复制失败，请手动选择' : '复制标题'
 
+  const blocking = node.checks.filter(c => c.blocking)
   const migration =
     node.migrationStatus && node.migrationStatus !== 'current' ? node.migrationStatus : ''
   const MIGRATION_LABEL: Record<string, string> = {
@@ -172,7 +181,7 @@ function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingR
   }
 
   return (
-    <div className={styles.body}>
+    <div className={styles.body} data-platform={node.platform} data-testid="listing-result">
       <Port shapeId={shape.id} portId="input" />
       {migration && (
         <div className={styles.migBanner} data-status={migration} role="status">
@@ -240,13 +249,33 @@ function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingR
               </div>
             ))}
           </dl>
+          {blocking.length > 0 && (
+            <div className={styles.blockGate} role="alert" data-testid="blocking-gate">
+              <b>
+                {blocking.length} 项阻断违规 · 已保留待人工复核
+              </b>
+              <small>未通过平台硬性规则，不会自动上架，也不会被静默沿用。</small>
+              {node.suggestedTitle && (
+                <span className={styles.suggestTitle} data-testid="suggested-title">
+                  建议标题：{node.suggestedTitle}
+                </span>
+              )}
+            </div>
+          )}
           <ul className={styles.checks}>
             {node.checks.map(c => (
-              <li key={c.id}>
+              <li key={c.id} data-blocking={c.blocking ? '1' : undefined}>
                 <b className={styles[c.state]}>{STAMP[c.state]}</b>
                 <span>
                   {c.label}
+                  {c.blocking ? <i className={styles.blockTag}>阻断</i> : null}
                   {c.detail ? <small>{c.detail}</small> : null}
+                  {c.evidence && c.evidence.length > 0 ? (
+                    <small className={styles.evidence}>问题片段：{c.evidence.join(' ')}</small>
+                  ) : null}
+                  {c.suggestion ? (
+                    <small className={styles.suggestion}>改法：{c.suggestion}</small>
+                  ) : null}
                 </span>
               </li>
             ))}
