@@ -13,6 +13,8 @@ import {
   STAMP,
   type ListingResultNode,
 } from '@/pipeline/nodes/types/skuStation'
+import { EvidenceTab, EvidenceVerdictSummary } from './EvidenceTab'
+import { useEvidenceGate } from './useEvidenceGate'
 import styles from './listingInspector.module.scss'
 
 // Viewport-level detail inspector.
@@ -23,11 +25,12 @@ import styles from './listingInspector.module.scss'
 // the canvas's own pan/zoom. Opening this reads the shapes but never writes to
 // them, so no node moves, no connection re-binds and the camera is untouched.
 
-type Tab = 'content' | 'compliance' | 'policy'
+type Tab = 'content' | 'compliance' | 'evidence' | 'policy'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'content', label: '内容' },
   { id: 'compliance', label: '合规' },
+  { id: 'evidence', label: '证据' },
   { id: 'policy', label: '政策与历史' },
 ]
 
@@ -83,6 +86,10 @@ export function ListingInspector({ editor }: { editor: Editor }) {
 
   const open = state.platform !== null
   const node = cards.find(c => c.platform === state.platform) ?? null
+
+  // Evidence verdicts for the open card. Fetched once and shared by the
+  // Compliance and Evidence tabs so switching between them costs nothing.
+  const { gate, reload: reloadGate } = useEvidenceGate(open ? node : null, editor)
 
   const close = useCallback(() => closeListingInspector(editor), [editor])
 
@@ -209,7 +216,10 @@ export function ListingInspector({ editor }: { editor: Editor }) {
 
         <div className={styles.content} data-testid="inspector-content" data-tab={tab}>
           {tab === 'content' && <ContentTab node={node} />}
-          {tab === 'compliance' && <ComplianceTab node={node} />}
+          {tab === 'compliance' && <ComplianceTab node={node} gate={gate} />}
+          {tab === 'evidence' && (
+            <EvidenceTab node={node} gate={gate} onLedgerChange={reloadGate} />
+          )}
           {tab === 'policy' && <PolicyTab node={node} />}
         </div>
       </div>
@@ -329,12 +339,19 @@ function ContentTab({ node }: { node: ListingResultNode }) {
   )
 }
 
-function ComplianceTab({ node }: { node: ListingResultNode }) {
+function ComplianceTab({
+  node,
+  gate,
+}: {
+  node: ListingResultNode
+  gate: import('./useEvidenceGate').GateState
+}) {
   const blocking = blockingChecks(node)
   const others = node.checks.filter(c => !c.blocking)
 
   return (
     <div className={styles.stack}>
+      <EvidenceVerdictSummary gate={gate} />
       <section className={styles.block}>
         <h3>校验汇总</h3>
         <p className={styles.summaryLine} data-testid="inspector-summary">

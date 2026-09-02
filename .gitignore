@@ -18,3 +18,6 @@ test-results/
 playwright-report/
 .last-run.json
 web/e2e/screenshots/
+
+# evidence blobs + ledger (runtime state, never committed)
+api/evidence_store/

@@ -21,6 +21,43 @@
 - 边界：不自动上架、不做自动化平台发布，不担保审核结果。状态用词始终真实（current / stale / candidate /
   applied / rolled back / needs human review），绝不写「已发布」。
 
+## 证据账本与发布闸门（Phase 1）
+
+每一条商业宣称都要能追溯到证据。上传规格表、说明书、证书或包装图后，系统会：
+
+1. 以 SHA-256 内容寻址落盘（`api/evidence_store/`，运行时状态，不入库不入仓）；
+   记录原始文件名、MIME、大小、上传时间、页码/工作表、摘录片段、有效期与**提取方式**。
+2. 确定性地抽取原子事实（容量、折叠尺寸、材质、耐温区间、BPA-Free 等），
+   每条事实有稳定 ID 并链接到具体的文档位置。
+3. 在发布闸门中比对：文案里的每条宣称是否有已核实的证据支撑。
+
+| 接口 | 说明 |
+|---|---|
+| `POST /api/evidence/upload` | 上传证据文件（PDF / JPG / PNG / TXT / MD / CSV / XLSX，≤ 20 MB） |
+| `GET /api/evidence/sources` · `DELETE /api/evidence/sources/{id}` | 证据文件清单与移除 |
+| `GET /api/evidence/facts` | 产品事实账本（过期状态按当天重新计算） |
+| `POST /api/evidence/facts/{id}/state` | 人工确认 / 更正事实 |
+| `POST /api/evidence/gate` | 对已生成草稿运行发布闸门 |
+
+**确定性与模型辅助的边界（重要）**
+
+- 文本类文档（PDF 文本层、TXT/MD、CSV、XLSX）走**确定性解析**，逐条标注 `deterministic`。
+- 图片没有文本层，且未启用 OCR：只读取像素尺寸，摘录为空，标注 `manual_review`。
+  **图片不会自动把任何事实转为已核实**，必须人工阅读确认。
+- 抽取只说明「文档写了什么」，**永远不会自动产生 `verified` 事实**；
+  只有人工确认才会转为已核实。这条规则由后端强制，前端没有绕过路径。
+- 本工具不对证据的法律效力作任何判断，也不代表平台审核结论。
+
+**事实状态**：`verified` / `needs_review` / `unsupported` / `conflicting` / `expired`。
+两份来源数值不一致 → `conflicting`；支撑证据全部过期 → `expired`；
+证据文件被移除 → 相关事实退回 `unsupported`，且该文件的取值不再参与冲突判定。
+
+**闸门规则**：材质、认证、安全、性能、环保、数值类宣称无证据支撑即**阻断**；
+冲突与过期证据阻断依赖它的字段；无事实风险的普通营销文案不进入闸门。
+平台政策校验与证据校验是两条独立的轴，在界面上分开呈现，互不替代。
+
+演示数据见 `demo/evidence/`（全部虚构，不得描述为官方证书或官方政策）。
+
 ## 自愈式 Listing CI/CD
 
 当 SKU 事实（品名 / 卖点）或平台政策变化时：

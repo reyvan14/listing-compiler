@@ -1,0 +1,14 @@
+AeroFold Travel Cup — Product Manual (FICTIONAL DEMO DOCUMENT)
+
+This document is invented for a software demonstration. It is not a real
+manual, test report or certificate.
+
+Specifications
+  Capacity: 350 ml
+  Folded height: 4 cm
+  Body material: food-grade silicone
+  Operating temperature: -40C to 200C
+  Dishwasher safe: yes
+
+Care
+  Rinse before first use. Air-dry with the lid off.

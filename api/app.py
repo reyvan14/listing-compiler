@@ -3,12 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, File, Form, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import evidence
 import migration
 import policy
 from agent import agent_reply
@@ -99,6 +100,179 @@ def listing_validate(body: ValidateBody):
             )
         )
     return {"code": 0, "data": {"drafts": out}}
+
+
+# --------------------------------------------------------------------------- #
+# Evidence ledger — uploaded documents, atomic facts, and the release gate.    #
+# Deterministic end to end; no model is called by any endpoint here.           #
+# --------------------------------------------------------------------------- #
+
+
+def _evidence_error(exc: evidence.EvidenceError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.http_status,
+        content={"code": 1, "error": exc.code, "message": exc.safe_message},
+    )
+
+
+@app.post("/api/evidence/upload")
+async def evidence_upload(
+    file: UploadFile = File(...),
+    expires_on: str = Form(""),
+    label: str = Form(""),
+):
+    """Store one evidence document and fold what it states into the ledger.
+
+    The response never echoes file contents beyond the bounded excerpts that
+    become fact links, and nothing about the upload is logged except its id,
+    family and size.
+    """
+    data = await file.read()
+    try:
+        source = evidence.store.put_source(
+            filename=file.filename or "upload",
+            declared_mime=file.content_type or "",
+            data=data,
+            expires_on=expires_on.strip(),
+            label=label.strip(),
+        )
+        locations = evidence.extract.extract_locations(source["family"], data)
+        touched = evidence.facts.ingest_document(
+            source["source_id"], locations, expires_on=source.get("expires_on", "")
+        )
+    except evidence.EvidenceError as exc:
+        return _evidence_error(exc)
+
+    return {
+        "code": 0,
+        "data": {
+            "source": source,
+            "locations": [
+                {k: v for k, v in loc.items() if k != "excerpt"} | {
+                    "excerpt": (loc.get("excerpt") or "")[:400]
+                }
+                for loc in locations
+            ],
+            "facts": touched,
+        },
+    }
+
+
+@app.get("/api/evidence/sources")
+def evidence_sources():
+    return {"code": 0, "data": {"sources": evidence.store.list_sources()}}
+
+
+@app.delete("/api/evidence/sources/{source_id}")
+def evidence_delete_source(source_id: str):
+    removed = evidence.store.delete_source(source_id)
+    if not removed:
+        return _bad("找不到该证据文件。", "unknown_source", 404)
+    # Erase the document's contribution to the ledger too, or its values would
+    # keep taking part in conflict detection after it is gone.
+    touched = evidence.facts.purge_source(source_id)
+    return {"code": 0, "data": {"deleted": source_id, "facts_updated": touched}}
+
+
+class SourceExpiryBody(BaseModel):
+    expires_on: str = ""
+
+
+@app.post("/api/evidence/sources/{source_id}/expiry")
+def evidence_set_expiry(source_id: str, body: SourceExpiryBody):
+    try:
+        return {
+            "code": 0,
+            "data": {"source": evidence.store.set_expiry(source_id, body.expires_on.strip())},
+        }
+    except evidence.EvidenceError as exc:
+        return _evidence_error(exc)
+
+
+@app.get("/api/evidence/facts")
+def evidence_list_facts():
+    return {"code": 0, "data": {"facts": evidence.facts.list_facts()}}
+
+
+class FactStateBody(BaseModel):
+    state: str
+    value: str | None = None
+    note: str = ""
+
+
+@app.post("/api/evidence/facts/{fact_id}/state")
+def evidence_fact_state(fact_id: str, body: FactStateBody):
+    """Operator confirmation or correction — the only route to `verified`."""
+    try:
+        fact = evidence.facts.set_fact_state(
+            fact_id, body.state, value=body.value, note=body.note
+        )
+    except evidence.EvidenceError as exc:
+        return _evidence_error(exc)
+    return {"code": 0, "data": {"fact": fact}}
+
+
+class DeclareFactBody(BaseModel):
+    key: str
+    claim_type: str = "numeric"
+    value: str = ""
+    state: str = "unsupported"
+    note: str = ""
+
+
+@app.post("/api/evidence/facts")
+def evidence_declare_fact(body: DeclareFactBody):
+    try:
+        fact = evidence.facts.declare_fact(
+            body.key, body.claim_type, value=body.value, state=body.state, note=body.note
+        )
+    except evidence.EvidenceError as exc:
+        return _evidence_error(exc)
+    return {"code": 0, "data": {"fact": fact}}
+
+
+@app.delete("/api/evidence/facts/{fact_id}")
+def evidence_delete_fact(fact_id: str):
+    if not evidence.facts.delete_fact(fact_id):
+        return _bad("找不到该产品事实。", "unknown_fact", 404)
+    return {"code": 0, "data": {"deleted": fact_id}}
+
+
+class EvidenceGateBody(BaseModel):
+    drafts: list[dict[str, Any]] = Field(default_factory=list)
+    #: The SKU selling points, gated as their own pseudo-field so a claim the
+    #: operator asserted in the truth source is checked even when a platform's
+    #: generated copy does not repeat it.
+    source_points: str = ""
+
+
+@app.post("/api/evidence/gate")
+def evidence_gate(body: EvidenceGateBody):
+    """Run the release gate over already-generated drafts.
+
+    Separate from /api/listing/validate on purpose: that endpoint answers
+    "does this satisfy the marketplace's formatting rules?", this one answers
+    "is every commercial claim backed by evidence we hold?".
+    """
+    ledger = evidence.facts.facts_by_id()
+    results = [
+        evidence.gate.evaluate_draft(d, ledger, source_points=body.source_points)
+        for d in body.drafts
+        if isinstance(d, dict)
+    ]
+    return {
+        "code": 0,
+        "data": {
+            "results": results,
+            "checks": {r["platform"]: evidence.gate.to_checks(r) for r in results},
+            "summary": {
+                "blocked": sum(1 for r in results if r["verdict"] == "blocked"),
+                "needs_review": sum(1 for r in results if r["verdict"] == "needs_review"),
+                "ok": sum(1 for r in results if r["verdict"] == "ok"),
+                "claims": sum(r["claim_count"] for r in results),
+            },
+        },
+    }
 
 
 class MediaImageBody(BaseModel):

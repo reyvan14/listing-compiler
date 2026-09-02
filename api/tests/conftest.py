@@ -51,3 +51,24 @@ def _clean_provider_env(monkeypatch):
     for name in _PROVIDER_ENV:
         monkeypatch.delenv(name, raising=False)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _isolated_evidence_store(tmp_path, monkeypatch):
+    """Every test gets an empty evidence store in its own tmp dir.
+
+    The ledger is real on-disk state, so without this a test could see facts a
+    previous test uploaded — and a developer's local uploads would leak into
+    the suite.
+    """
+    monkeypatch.setenv("LISTING_EVIDENCE_DIR", str(tmp_path / "evidence_store"))
+    yield
+
+
+DEMO_EVIDENCE = Path(__file__).resolve().parents[2] / "demo" / "evidence"
+
+
+@pytest.fixture
+def demo_evidence():
+    """Path to the fictional demo evidence documents."""
+    return DEMO_EVIDENCE

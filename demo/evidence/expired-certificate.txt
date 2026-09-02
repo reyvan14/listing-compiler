@@ -1,0 +1,12 @@
+MATERIAL COMPLIANCE STATEMENT (FICTIONAL DEMO DOCUMENT)
+
+This is not a real certificate and carries no legal weight. It exists only to
+demonstrate expiry handling in the evidence ledger.
+
+Subject: AeroFold Collapsible Silicone Travel Cup
+Statement: body material is food-grade silicone
+Issued: 2022-01-15
+Valid until: 2023-01-14
+
+Upload this file with expires_on = 2023-01-14 to see certification-dependent
+claims blocked as expired.

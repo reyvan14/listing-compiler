@@ -25,6 +25,12 @@ export default defineConfig({
   webServer: {
     command: `python3 -m uvicorn app:app --host 127.0.0.1 --port ${PORT} --log-level warning`,
     cwd: path.resolve(HERE, '../api'),
+    env: {
+      // The evidence ledger is real on-disk state. Give each E2E run its own
+      // throwaway store so specs cannot inherit each other's uploads and a
+      // developer's real documents are never touched by the suite.
+      LISTING_EVIDENCE_DIR: path.resolve(HERE, 'test-results/evidence-store'),
+    },
     url: `http://127.0.0.1:${PORT}/health`,
     reuseExistingServer: false,
     timeout: 60_000,
