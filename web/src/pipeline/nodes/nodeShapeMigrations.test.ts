@@ -82,14 +82,22 @@ describe('listing_result compliance backfill', () => {
 })
 
 describe('listing_result compact-card backfill', () => {
-  it('loads an old result card in the collapsed state', () => {
-    const node = backfillNodeProps({ type: 'listing_result', platform: 'amazon', checks: [] })
-    expect(node.expanded).toBe(false)
+  it('drops the retired expanded flag — cards are permanently compact', () => {
+    // T.object rejects unknown keys, so a persisted `expanded` must be deleted,
+    // not merely ignored, or the old canvas fails validation on load.
+    const node = backfillNodeProps({
+      type: 'listing_result',
+      platform: 'amazon',
+      expanded: true,
+      checks: [],
+    })
+    expect('expanded' in node).toBe(false)
   })
 
-  it('is idempotent and keeps an explicit expanded flag', () => {
-    const once = backfillNodeProps({ type: 'listing_result', platform: 'amazon', expanded: true, checks: [] })
+  it('is idempotent for a card that never had the flag', () => {
+    const once = backfillNodeProps({ type: 'listing_result', platform: 'amazon', checks: [] })
     const twice = backfillNodeProps({ ...once })
-    expect(twice.expanded).toBe(true)
+    expect('expanded' in twice).toBe(false)
+    expect(twice.artifactId).toBe('amazon')
   })
 })

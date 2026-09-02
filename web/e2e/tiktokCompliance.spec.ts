@@ -62,7 +62,8 @@ async function generateWithFailedTitle(page: Page) {
   await page.waitForSelector('[data-testid="blocking-badge"]', { timeout: 25_000 });
 }
 
-/** Open the TikTok card's detail view, where the per-rule explanations live. */
+/** Open the TikTok card's detail view — now the viewport-level inspector's
+ * Compliance tab, where the per-rule explanations live. */
 async function expandTiktok(page: Page) {
   await page.evaluate(() => {
     const editor = (window as unknown as { editor: any }).editor;
@@ -78,7 +79,9 @@ async function expandTiktok(page: Page) {
     );
   });
   await page.waitForTimeout(250);
-  await tiktokCard(page).getByTestId('toggle-details').click();
+  await tiktokCard(page).getByTestId('open-details').click();
+  await page.waitForSelector('[data-testid="listing-inspector"]', { timeout: 10_000 });
+  await page.locator('[data-testid="inspector-tab"][data-tab="compliance"]').click();
   await page.waitForTimeout(300);
 }
 
@@ -107,7 +110,7 @@ test('TikTok emoji + hashtag + clickbait title is blocked, not silently accepted
 
   // and the full gate is one expand away
   await expandTiktok(page);
-  const gate = page.locator('[data-testid="blocking-gate"]');
+  const gate = page.locator('[data-testid="inspector-blocking-gate"]');
   await expect(gate).toBeVisible();
   await expect(gate).toContainText('已保留待人工复核');
   await expect(gate).not.toContainText('已发布');
@@ -122,7 +125,7 @@ test('each violation is shown with its own explanation and suggested correction'
   await generateWithFailedTitle(page);
 
   await expandTiktok(page);
-  const card = tiktokCard(page);
+  const card = page.locator('[data-testid="listing-inspector"]');
   await expect(card).toBeVisible();
 
   // one row per violated rule, each flagged 阻断
@@ -155,7 +158,7 @@ test('the suggested replacement title is clean and leads with the product', asyn
   await generateWithFailedTitle(page);
 
   await expandTiktok(page);
-  const suggested = page.locator('[data-testid="suggested-title"]');
+  const suggested = page.locator('[data-testid="inspector-suggested-title"]');
   await expect(suggested).toBeVisible();
   const text = (await suggested.textContent()) ?? '';
   expect(text).toContain('AeroFold Silicone Travel Cup');
@@ -190,7 +193,7 @@ test('a compliant TikTok title produces no blocking gate', async ({ page }, test
   await page.waitForTimeout(500);
 
   await expect(page.locator('[data-testid="blocking-badge"]')).toHaveCount(0);
-  await expect(page.locator('[data-testid="blocking-gate"]')).toHaveCount(0);
-  await expect(page.locator('[data-testid="suggested-title"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="inspector-blocking-gate"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="inspector-suggested-title"]')).toHaveCount(0);
   await page.screenshot({ path: `${SHOTS}/${tag(testInfo)}-tiktok-02-clean.png` });
 });

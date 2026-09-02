@@ -290,12 +290,13 @@ test('P2.17 copy button shows success feedback', async ({ page }) => {
   await page.click('#station-fill');
   await page.click('#station-generate');
   await expect(page.getByText('模型生成 · Token Plan')).toBeVisible({ timeout: 15_000 });
-  // Cards start as compact summaries; copying lives in the detail view.
+  // Cards are permanently compact; copying lives in the viewport-level inspector.
   const amazon = page.locator('[data-testid="listing-result"][data-platform="amazon"]');
-  await amazon.getByTestId('toggle-details').click();
-  const copyBtn = amazon.getByRole('button', { name: '复制标题' });
-  await copyBtn.click();
-  await expect(amazon.getByRole('button', { name: '已复制标题' })).toBeVisible();
+  await amazon.getByTestId('open-details').click();
+  const inspector = page.locator('[data-testid="listing-inspector"]');
+  await expect(inspector).toBeVisible();
+  await inspector.getByRole('button', { name: '复制标题' }).click();
+  await expect(inspector.getByRole('button', { name: '已复制标题' })).toBeVisible();
 });
 
 // --------------------------------------------------------------------------- //

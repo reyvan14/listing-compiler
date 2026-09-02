@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { T, useEditor } from 'tldraw'
 import { NODE_HEADER_HEIGHT_PX } from '../../constants'
 import { Port, ShapePort } from '../../ports/Port'
@@ -8,16 +7,13 @@ import {
   blockingChecks,
   checkSummaryText,
   COMPACT_FIELD_LIMIT,
-  collapseResults,
   downloadAdCut,
-  expandResult,
-  isResultExpanded,
   RESULT_NODE_WIDTH,
   resultBodyHeightPx,
   STAMP,
   worstCheck,
-  worstCheckItem,
 } from './skuStation'
+import { openListingInspector } from './listingInspector'
 import styles from './skuStation.module.scss'
 import {
   ExecutionResult,
@@ -52,9 +48,6 @@ export const ListingResultNode = T.object({
   note: T.string,
   /** Deterministic suggested replacement title, when one can be derived. */
   suggestedTitle: T.string,
-  /** false = compact summary card (the default); true = full detail. Only one
-   * result card may be expanded at a time — see expandResult(). */
-  expanded: T.boolean,
   // ---- self-healing Listing CI/CD dependency metadata --------------------
   // Stable artifact id (= platform for a listing card), the policy version this
   // card was compiled against, the SKU fact IDs the title depends on, and a
@@ -107,7 +100,6 @@ export class ListingResultNodeDefinition extends NodeDefinition<ListingResultNod
       script: [],
       note: '',
       suggestedTitle: '',
-      expanded: false,
       artifactId: '',
       policyVersion: '',
       factRefs: [],
@@ -160,26 +152,11 @@ function keepOnControl(e: { stopPropagation: () => void }) {
 
 function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingResultNode>) {
   const editor = useEditor()
-  const expanded = isResultExpanded(node)
   const stamp = node.checks.length ? worstCheck(node.checks) : null
-  const worst = worstCheckItem(node.checks)
   const hold =
     node.platform !== 'shopify' &&
     node.platform !== 'ad' &&
     node.checks.some(c => c.id === 'img' && c.state === 'fix')
-
-  const [copied, setCopied] = useState<null | 'ok' | 'err'>(null)
-  const copyTitle = async () => {
-    try {
-      await navigator.clipboard.writeText(node.title)
-      setCopied('ok')
-    } catch {
-      setCopied('err')
-    }
-    window.setTimeout(() => setCopied(null), 2000)
-  }
-  const copyLabel =
-    copied === 'ok' ? '已复制标题' : copied === 'err' ? '复制失败，请手动选择' : '复制标题'
 
   const blocking = blockingChecks(node)
   const migration =
@@ -192,20 +169,18 @@ function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingR
     'needs-human-review': '需人工复核',
   }
 
-  const toggleExpanded = () => {
-    if (expanded) collapseResults(editor)
-    else expandResult(editor, shape.id)
-  }
+  // Detail opens the viewport-level inspector. The node itself never resizes,
+  // so the stack never re-flows and the camera never moves.
+  const openDetail = () => openListingInspector(editor, node.platform, shape.id)
 
   return (
     <div
-      className={`${styles.body} ${expanded ? styles.expandedCard : styles.compactCard}`}
+      className={`${styles.body} ${styles.compactCard}`}
       data-platform={node.platform}
       data-testid="listing-result"
-      data-expanded={expanded ? '1' : '0'}
-      // Double-click-to-expand is handled by NodeShapeUtil.onDoubleClick: the
-      // card body has pointer-events disabled so the node stays draggable, so a
-      // DOM handler here would never fire.
+      // Double-click also opens the inspector, via NodeShapeUtil.onDoubleClick:
+      // the card body has pointer-events disabled so the node stays draggable,
+      // so a DOM handler here would never fire.
     >
       <Port shapeId={shape.id} portId="input" />
       {migration && (
@@ -214,28 +189,21 @@ function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingR
           {node.staleReason ? <small>{node.staleReason}</small> : null}
         </div>
       )}
-      {/* Header row: role + status on the left, the detail toggle pinned right.
-          Keeping the toggle at the top means it stays reachable no matter how
-          tall the expanded card grows. */}
       <div className={styles.cardHead}>
         <p className={styles.role}>{node.role}</p>
         {node.platform !== 'ad' && (
           <button
             type="button"
             className={styles.btnGhost}
-            data-testid="toggle-details"
-            aria-expanded={expanded}
+            data-testid="open-details"
             onPointerDown={keepOnControl}
-            onClick={toggleExpanded}
+            onClick={openDetail}
           >
-            {expanded ? '收起详情' : '查看详情'}
+            查看详情
           </button>
         )}
       </div>
       {stamp && <b className={`${styles.stamp} ${styles[stamp]}`}>{STAMP[stamp]}</b>}
-      {expanded && worst && worst.state !== 'pass' && worst.detail && (
-        <p className={styles.reason}>{worst.detail}</p>
-      )}
 
       {node.platform === 'ad' ? (
         <div className={styles.adBody}>
@@ -273,22 +241,9 @@ function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingR
           <div className={styles.titleBlock}>
             <small>标题</small>
             <p>{node.title}</p>
-            {/* Copying belongs to the detail view: the compact card shows only
-                the summary content listed in the layout spec. */}
-            {expanded && (
-              <button
-                type="button"
-                data-copied={copied ?? undefined}
-                aria-live="polite"
-                onPointerDown={keepOnControl}
-                onClick={copyTitle}
-              >
-                {copyLabel}
-              </button>
-            )}
           </div>
           <dl className={styles.fields}>
-            {(expanded ? node.fields : node.fields.slice(0, COMPACT_FIELD_LIMIT)).map(f => (
+            {node.fields.slice(0, COMPACT_FIELD_LIMIT).map(f => (
               <div key={f.label}>
                 <dt>{f.label}</dt>
                 <dd>{f.value}</dd>
@@ -296,55 +251,23 @@ function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingR
             ))}
           </dl>
 
-          {/* Blocking status is never hidden: compact mode shows a one-line red
-              banner, expanded mode shows the full gate with the suggested title. */}
-          {blocking.length > 0 &&
-            (expanded ? (
-              <div className={styles.blockGate} role="alert" data-testid="blocking-gate">
-                <b>{blocking.length} 项阻断违规 · 已保留待人工复核</b>
-                <small>未通过平台硬性规则，不会自动上架，也不会被静默沿用。</small>
-                {node.suggestedTitle && (
-                  <span className={styles.suggestTitle} data-testid="suggested-title">
-                    建议标题：{node.suggestedTitle}
-                  </span>
-                )}
-              </div>
-            ) : (
-              <p
-                className={styles.blockBadge}
-                role="alert"
-                data-testid="blocking-badge"
-                title="展开查看每条违规的说明与改法"
-              >
-                {blocking.length} 项阻断违规 · 需人工复核
-              </p>
-            ))}
-
-          {expanded ? (
-            <ul className={styles.checks}>
-              {node.checks.map(c => (
-                <li key={c.id} data-blocking={c.blocking ? '1' : undefined}>
-                  <b className={styles[c.state]}>{STAMP[c.state]}</b>
-                  <span>
-                    {c.label}
-                    {c.blocking ? <i className={styles.blockTag}>阻断</i> : null}
-                    {c.detail ? <small>{c.detail}</small> : null}
-                    {c.evidence && c.evidence.length > 0 ? (
-                      <small className={styles.evidence}>问题片段：{c.evidence.join(' ')}</small>
-                    ) : null}
-                    {c.suggestion ? (
-                      <small className={styles.suggestion}>改法：{c.suggestion}</small>
-                    ) : null}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className={styles.checkSummary} data-testid="check-summary">
-              {checkSummaryText(node.checks)}
+          {/* Blocking status is never hidden or downgraded: the compact card
+              keeps a one-line red banner; the explanations live in the
+              inspector's Compliance tab. */}
+          {blocking.length > 0 && (
+            <p
+              className={styles.blockBadge}
+              role="alert"
+              data-testid="blocking-badge"
+              title="打开详情查看每条违规的说明与改法"
+            >
+              {blocking.length} 项阻断违规 · 需人工复核
             </p>
           )}
 
+          <p className={styles.checkSummary} data-testid="check-summary">
+            {checkSummaryText(node.checks)}
+          </p>
         </>
       )}
     </div>

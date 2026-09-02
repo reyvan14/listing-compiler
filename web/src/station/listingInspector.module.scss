@@ -1,0 +1,461 @@
+/* 视口级上新草稿详情检查器。
+   宽度 760px（要求 720–820），最高 calc(100vh - header - 32px)：头部与两排 tab 固定，
+   只有内容区在溢出时才滚动。z-index 高于规则抽屉(30)与 Agent 面板(30)。 */
+
+$header-h: 96px;
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 16px;
+  pointer-events: none;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(18, 17, 15, 0.52);
+  pointer-events: auto;
+}
+
+.panel {
+  position: relative;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - #{$header-h} - 32px);
+  margin-top: $header-h;
+  overflow: hidden;
+  border: 1px solid #3a3327;
+  border-radius: 12px;
+  background: #1f1d18;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  color: #e1ded8;
+}
+
+/* ---- 固定头部 ---------------------------------------------------------- */
+.head {
+  flex: 0 0 auto;
+  padding: 14px 18px 0;
+  border-bottom: 1px solid #352f25;
+  background: #221f1a;
+}
+
+.headTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+
+  h2 {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin: 4px 0 10px;
+    font-size: 19px;
+    color: #f4f1ea;
+  }
+}
+
+.headRole {
+  font-size: 12px;
+  font-weight: 400;
+  color: #a8a49b;
+}
+
+.kicker {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8d887c;
+}
+
+.close {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid #4a4335;
+  border-radius: 6px;
+  background: transparent;
+  color: #e1ded8;
+  font-size: 12.5px;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.07);
+  }
+}
+
+.platformTabs,
+.sectionTabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.platformTabs {
+  margin-bottom: 8px;
+}
+
+.sectionTabs {
+  margin-bottom: -1px;
+}
+
+.tab,
+.tabActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: #a8a49b;
+  font-size: 12.5px;
+  cursor: pointer;
+
+  &:hover {
+    color: #e1ded8;
+    background: rgba(255, 255, 255, 0.05);
+  }
+}
+
+.tabActive {
+  color: #ffce7a;
+  background: #1f1d18;
+  border-color: #3a3327;
+  border-bottom-color: #1f1d18;
+  font-weight: 600;
+}
+
+.platformTabs .tabActive {
+  border-radius: 6px;
+  border-color: #4a4335;
+}
+
+/* 阻断提示点：tab 上的红点，折叠状态下也看得见 */
+.tabDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ff7649;
+}
+
+/* ---- 内容区（唯一可滚动的部分）----------------------------------------- */
+.content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px 18px 20px;
+}
+
+.contentGrid {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.colNarrow,
+.colWide {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.block {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid #352f25;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+
+  h3 {
+    margin: 0 0 8px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: #a8a49b;
+  }
+}
+
+.blockHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  h3 {
+    margin-bottom: 8px;
+  }
+}
+
+.copyBtn {
+  flex: 0 0 auto;
+  margin-bottom: 8px;
+  padding: 3px 10px;
+  border: 1px solid #4a4335;
+  border-radius: 5px;
+  background: transparent;
+  color: #cfc9bd;
+  font-size: 11.5px;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.07);
+  }
+  &:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  &[data-copied='ok'] {
+    color: #7ee0b0;
+    border-color: #3f6b56;
+  }
+  &[data-copied='err'] {
+    color: #ff9c7a;
+    border-color: #7a4433;
+  }
+}
+
+.art {
+  overflow: hidden;
+  border-radius: 8px;
+  background: #fff;
+
+  img {
+    display: block;
+    width: 100%;
+    height: 168px;
+    object-fit: contain;
+  }
+}
+
+.titleText {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: #f4f1ea;
+  overflow-wrap: anywhere;
+}
+
+.longText {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #e1ded8;
+}
+
+.bullets {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.6;
+
+  li {
+    margin-bottom: 4px;
+    overflow-wrap: anywhere;
+  }
+}
+
+.meta {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #8d887c;
+  overflow-wrap: anywhere;
+
+  code {
+    color: #9fd0ff;
+  }
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+
+  dt {
+    font-size: 11px;
+    color: #8d887c;
+  }
+  dd {
+    margin: 2px 0 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: #e1ded8;
+    overflow-wrap: anywhere;
+
+    code {
+      color: #9fd0ff;
+    }
+  }
+}
+
+/* ---- 合规 -------------------------------------------------------------- */
+.summaryLine {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #e1ded8;
+}
+
+.okLine {
+  margin: 0;
+  font-size: 12.5px;
+  color: #7ee0b0;
+}
+
+.gate {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border-left: 3px solid #ff7649;
+  background: rgba(255, 118, 73, 0.14);
+
+  b {
+    font-size: 12.5px;
+    color: #ff9c7a;
+  }
+  small {
+    font-size: 11.5px;
+    color: #d9b9ae;
+  }
+}
+
+.suggestTitle {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #7ee0b0;
+  overflow-wrap: anywhere;
+}
+
+.checkList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  li {
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+    &[data-blocking='1'] {
+      background: rgba(255, 118, 73, 0.08);
+      border-left: 3px solid #ff7649;
+    }
+  }
+}
+
+.checkHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: #f4f1ea;
+}
+
+.checkDetail,
+.evidence,
+.suggestion {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.checkDetail {
+  color: #cfc9bd;
+}
+.evidence {
+  color: #d9b9ae;
+}
+.suggestion {
+  color: #7ee0b0;
+}
+
+.pass,
+.fix,
+.ad-only {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.pass {
+  background: rgba(75, 191, 135, 0.18);
+  color: #7ee0b0;
+}
+.fix {
+  background: rgba(255, 118, 73, 0.2);
+  color: #ff9c7a;
+}
+.ad-only {
+  background: rgba(255, 194, 73, 0.2);
+  color: #ffce7a;
+}
+
+.blockTag {
+  padding: 0 5px;
+  border-radius: 999px;
+  font-style: normal;
+  font-size: 10px;
+  background: rgba(255, 118, 73, 0.22);
+  color: #ff9c7a;
+}
+
+/* ---- 政策与历史 -------------------------------------------------------- */
+.statusLine {
+  margin: 0 0 6px;
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(75, 191, 135, 0.18);
+  color: #7ee0b0;
+
+  &[data-status='stale'],
+  &[data-status='candidate'] {
+    background: rgba(255, 194, 73, 0.2);
+    color: #ffce7a;
+  }
+  &[data-status='needs-human-review'] {
+    background: rgba(255, 118, 73, 0.18);
+    color: #ff9c7a;
+  }
+  &[data-status='rolled-back'] {
+    background: rgba(255, 255, 255, 0.08);
+    color: #cfc9bd;
+  }
+}
+
+/* 窄视口：图片列收起到内容列之上 */
+@media (max-width: 900px) {
+  .contentGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

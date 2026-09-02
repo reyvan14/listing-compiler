@@ -6,7 +6,6 @@ import {
   COMPACT_FIELD_LIMIT,
   blockingChecks,
   checkSummaryText,
-  isResultExpanded,
   resultBodyHeightPx,
   type ListingResultNode,
   type StoredCheckItem,
@@ -45,7 +44,6 @@ function card(over: Partial<ListingResultNode> = {}): ListingResultNode {
     script: [],
     note: '',
     suggestedTitle: '',
-    expanded: false,
     artifactId: 'amazon',
     policyVersion: 'amazon-us-2025.03',
     factRefs: [],
@@ -99,7 +97,9 @@ describe('compact summary card', () => {
     expect(resultBodyHeightPx(blocked)).toBeGreaterThan(resultBodyHeightPx(clean))
   })
 
-  it('a long Amazon card is far shorter compact than expanded', () => {
+  it('a card with many long checks stays exactly the compact height', () => {
+    // Detail lives in the viewport-level inspector, so no amount of check copy
+    // can make the node outgrow the viewport.
     const long = card({
       checks: [
         check({ id: 'a', state: 'fix', detail: 'd'.repeat(120), suggestion: 's'.repeat(120) }),
@@ -107,23 +107,35 @@ describe('compact summary card', () => {
         check({ id: 'c', state: 'fix', detail: 'd'.repeat(120), suggestion: 's'.repeat(120) }),
       ],
     })
-    const compactH = resultBodyHeightPx(long)
-    const expandedH = resultBodyHeightPx({ ...long, expanded: true })
-    expect(compactH).toBe(COMPACT_BODY_HEIGHT_PX)
-    expect(expandedH).toBeGreaterThan(compactH)
+    expect(resultBodyHeightPx(long)).toBe(COMPACT_BODY_HEIGHT_PX)
   })
 
-  it('the ad card keeps its own fixed height and is never expandable', () => {
-    const ad = card({ platform: 'ad', expanded: true })
-    expect(isResultExpanded(ad)).toBe(false)
-    expect(resultBodyHeightPx(ad)).toBe(268)
+  it('the ad card keeps its own fixed height', () => {
+    expect(resultBodyHeightPx(card({ platform: 'ad' }))).toBe(268)
   })
-})
 
-describe('isResultExpanded', () => {
-  it('is false by default and true only when the flag is set', () => {
-    expect(isResultExpanded(card())).toBe(false)
-    expect(isResultExpanded(card({ expanded: true }))).toBe(true)
+  it('the migration status banner does not change the card height', () => {
+    // The banner is an absolutely-positioned overlay precisely so that marking
+    // one card stale cannot push the cards below it down: unaffected cards keep
+    // their exact positions through a migration.
+    const plain = card()
+    const stale = card({ migrationStatus: 'stale' })
+    const staleWithReason = card({ migrationStatus: 'stale', staleReason: '政策变更 · title' })
+
+    expect(resultBodyHeightPx(stale)).toBe(resultBodyHeightPx(plain))
+    expect(resultBodyHeightPx(staleWithReason)).toBe(resultBodyHeightPx(plain))
+  })
+
+  it('only a blocking violation changes the height, and only once', () => {
+    const heights = new Set(
+      [
+        card(),
+        card({ migrationStatus: 'applied' }),
+        card({ title: 'x'.repeat(400) }),
+        card({ fields: [] }),
+      ].map(resultBodyHeightPx),
+    )
+    expect([...heights]).toHaveLength(1)
   })
 })
 

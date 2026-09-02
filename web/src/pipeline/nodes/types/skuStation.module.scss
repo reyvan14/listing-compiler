@@ -1,4 +1,5 @@
 .body {
+  position: relative; /* anchor for the absolutely-positioned status banner */
   padding: 0 12px 12px;
   color: #fffdfa;
   font-family: 'PingFang SC', Inter, sans-serif;
@@ -419,12 +420,19 @@
   }
 }
 
-/* 迁移状态横幅（结果卡顶部）— 琥珀=过期/候选，绿=已应用，红仅用于阻断项 */
+/* 迁移状态横幅（结果卡顶部）— 琥珀=过期/候选，绿=已应用，红仅用于阻断项。
+   绝对定位覆盖在卡片顶部：状态变化不改变卡片高度，因此未受影响的卡片不会
+   因为上方卡片长高而被挤动，位置逐像素保持不变。 */
 .migBanner {
+  position: absolute;
+  top: 26px; /* below the header row, over the top of the product image */
+  left: 12px;
+  right: 12px;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 0 0 8px;
+  margin: 0;
   padding: 4px 8px;
   border-radius: 5px;
   font-size: 11.5px;

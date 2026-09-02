@@ -77,6 +77,8 @@ export const nodeShapeVersions = createShapePropsMigrationIds('node', {
 	AddListingComplianceFields: 23,
 	// 结果卡改紧凑摘要 + 单卡展开：listing_result 新增 expanded。
 	AddListingCompactCard: 24,
+	// 详情改为视口级检查器：listing_result 删除 expanded（结果卡恒为紧凑态）。
+	RemoveListingExpanded: 25,
 })
 
 // 图片/视频「类型」改为传英文码（显示中文、存英文）。旧的中文值/缺失统一回填为默认。
@@ -235,8 +237,9 @@ export function backfillNodeProps(node: Record<string, unknown>): Record<string,
 			// 合规闸门字段：旧结果卡的 check 缺 suggestion/blocking/evidence（T.object 严格校验），
 			// 逐条补齐；节点补 suggestedTitle。旧卡未跑过新校验，一律按无阻断处理。
 			node.suggestedTitle ??= ''
-			// 紧凑摘要卡：旧结果卡一律以折叠态载入（展开是会话内的查看动作，不该被持久化恢复）。
-			node.expanded ??= false
+			// 详情改为视口级检查器后，结果卡恒为紧凑态：删除已退役的 expanded
+			// （T.object 严格校验拒绝未知键，必须真正 delete）。
+			if ('expanded' in node) delete node.expanded
 			if (Array.isArray(node.checks)) {
 				node.checks = node.checks.map((raw) => {
 					const check = { ...(raw as Record<string, unknown>) }
@@ -527,6 +530,15 @@ export const nodeShapeMigrations = createShapePropsMigrationSequence({
 		{
 			// listing_result：补 expanded（紧凑摘要卡默认折叠）。
 			id: nodeShapeVersions.AddListingCompactCard,
+			up: (props) => ({
+				...props,
+				node: backfillNodeProps({ ...(props.node as Record<string, unknown>) }),
+			}),
+			down: 'retired',
+		},
+		{
+			// listing_result：删 expanded（详情移到视口级检查器）。
+			id: nodeShapeVersions.RemoveListingExpanded,
 			up: (props) => ({
 				...props,
 				node: backfillNodeProps({ ...(props.node as Record<string, unknown>) }),

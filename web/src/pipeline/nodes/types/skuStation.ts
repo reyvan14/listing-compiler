@@ -81,9 +81,6 @@ export type ListingResultNode = {
   script: string[]
   note: string
   suggestedTitle: string
-  /** Compact summary card by default; only one result may be expanded at a time
-   * (enforced by expandResult / collapseResults). */
-  expanded: boolean
   // self-healing Listing CI/CD dependency metadata (see ListingResultNode.tsx)
   artifactId: string
   policyVersion: string
@@ -372,10 +369,6 @@ export const COMPACT_BLOCKING_ROW_PX = 34
 /** How many key fields a compact card shows. */
 export const COMPACT_FIELD_LIMIT = 3
 
-export function isResultExpanded(node: ListingResultNode): boolean {
-  return node.platform !== 'ad' && node.expanded === true
-}
-
 export function blockingChecks(node: ListingResultNode): StoredCheckItem[] {
   return node.checks.filter(c => c.blocking)
 }
@@ -390,55 +383,18 @@ export function checkSummaryText(checks: CheckItem[]): string {
   return parts.join(' / ')
 }
 
+/**
+ * Result cards are permanently compact.
+ *
+ * Detail lives in the viewport-level inspector (station/ListingInspector.tsx),
+ * not in a taller node: a node that outgrows the viewport can only be read by
+ * scrolling inside it, and wheel-scrolling inside a canvas node fights the
+ * canvas's own pan/zoom. Height therefore varies only with the two banners the
+ * compact card may carry, never with content length.
+ */
 export function resultBodyHeightPx(node: ListingResultNode): number {
   if (node.platform === 'ad') return 268
-  if (!isResultExpanded(node)) {
-    // Fixed height so Amazon / TikTok Shop / Shopify cards are identical.
-    return COMPACT_BODY_HEIGHT_PX + (blockingChecks(node).length ? COMPACT_BLOCKING_ROW_PX : 0)
-  }
-  const migrationBanner =
-    node.migrationStatus && node.migrationStatus !== 'current' ? (node.staleReason ? 44 : 26) : 0
-  const inner = RESULT_NODE_WIDTH - STATION_INNER_PAD
-  // font sizes bumped for readability (see skuStation.module.scss) — keep the
-  // geometry estimate in step so cards don't clip.
-  const titleLines = Math.min(4, estimateTextLines(node.title, inner - 40, 14))
-  const fieldsH = node.fields.slice(0, 3).reduce((sum, field) => {
-    return sum + 18 + Math.min(3, estimateTextLines(field.value, inner, 13)) * 19 + 8
-  }, 0)
-  const reason = worstCheckItem(node.checks)
-  const reasonH = reason && reason.state !== 'pass' && reason.detail ? 40 : 0
-  const checksH = node.checks.reduce((sum, check) => {
-    const detailLines = check.detail ? Math.min(2, estimateTextLines(check.detail, inner - 8, 12)) : 0
-    // violation rows also carry an evidence line and a suggested correction
-    const evidenceLines = check.evidence?.length
-      ? Math.min(2, estimateTextLines(check.evidence.join(' '), inner - 8, 11.5))
-      : 0
-    const suggestionLines = check.suggestion
-      ? Math.min(3, estimateTextLines(check.suggestion, inner - 8, 11.5))
-      : 0
-    return sum + 22 + (detailLines + evidenceLines + suggestionLines) * 16
-  }, 18)
-  // the blocking-violation gate above the checks list
-  const blockingCount = node.checks.filter(c => c.blocking).length
-  const gateH = blockingCount
-    ? 42 +
-      (node.suggestedTitle
-        ? Math.min(3, estimateTextLines(node.suggestedTitle, inner - 8, 11)) * 16
-        : 0)
-    : 0
-  return (
-    migrationBanner +
-    28 +
-    reasonH +
-    118 +
-    16 +
-    titleLines * 20 +
-    10 +
-    fieldsH +
-    gateH +
-    checksH +
-    32
-  )
+  return COMPACT_BODY_HEIGHT_PX + (blockingChecks(node).length ? COMPACT_BLOCKING_ROW_PX : 0)
 }
 
 /** Vertical gap between stacked result cards. */
@@ -494,97 +450,6 @@ function platformResultShapes(editor: Editor): NodeShape[] {
   })
 }
 
-/**
- * Re-flow the result stack after a card changed height.
- *
- * The top of the stack is the anchor: the first card keeps its Y, and the ones
- * below are pushed down (or pulled back up) so every gap is exactly
- * RESULT_STACK_GAP. Because compact heights are fixed, collapsing everything
- * lands the cards back on their exact original coordinates.
- *
- * Order is taken from the current Y positions, which stay correctly ordered
- * through a resize: expanding changes a card's height, never its top edge.
- *
- * Never touches the camera.
- */
-export function restackResults(editor: Editor): void {
-  const shapes = platformResultShapes(editor)
-  if (shapes.length === 0) return
-
-  const withTop = shapes
-    .map(s => ({ shape: s, bounds: editor.getShapePageBounds(s.id) }))
-    .filter((e): e is { shape: NodeShape; bounds: NonNullable<typeof e.bounds> } => !!e.bounds)
-  if (withTop.length === 0) return
-  withTop.sort((a, b) => a.bounds.y - b.bounds.y)
-
-  const anchorY = withTop[0].bounds.y
-  // One shared X keeps the fan-out readable even if a card was dragged.
-  const x = withTop[0].bounds.x
-
-  placeStack(
-    editor,
-    withTop.map(e => e.shape),
-    x,
-    anchorY,
-  )
-}
-
-/**
- * Expand exactly one result card and collapse every other one.
- *
- * Single-expansion is enforced here rather than trusted to callers. The card's
- * input port sits at a fixed y (NODE_HEADER_HEIGHT_PX / 2), so growing the body
- * never moves the port and connections stay aligned. Nothing here touches the
- * camera.
- */
-export function expandResult(editor: Editor, shapeId: string) {
-  editor.run(() => {
-    for (const shape of platformResultShapes(editor)) {
-      const want = shape.id === shapeId
-      const node = shape.props.node as ListingResultNode
-      if (node.expanded === want) continue
-      updateNode<ListingResultNode>(editor, shape, n => ({ ...n, expanded: want }), false)
-    }
-    // The expanded card is taller than the compact one it replaced; without a
-    // re-flow it would overlap whatever sits below it.
-    restackResults(editor)
-  })
-}
-
-/** Collapse every result card back to the compact summary. */
-export function collapseResults(editor: Editor) {
-  editor.run(() => {
-    let changed = false
-    for (const shape of platformResultShapes(editor)) {
-      const node = shape.props.node as ListingResultNode
-      if (!node.expanded) continue
-      updateNode<ListingResultNode>(editor, shape, n => ({ ...n, expanded: false }), false)
-      changed = true
-    }
-    // Compact heights are fixed, so re-flowing from the same anchor puts every
-    // card back on its exact pre-expansion coordinates.
-    if (changed) restackResults(editor)
-  })
-}
-
-/** Toggle one card; expanding collapses the others. */
-export function toggleResultExpanded(editor: Editor, shapeId: string) {
-  const shape = editor.getShape(shapeId as TLShapeId)
-  const node =
-    shape && editor.isShapeOfType(shape, 'node')
-      ? ((shape as NodeShape).props.node as ListingResultNode)
-      : undefined
-  if (node?.expanded) collapseResults(editor)
-  else expandResult(editor, shapeId)
-}
-
-export function expandedResultId(editor: Editor): string | null {
-  const hit = platformResultShapes(editor).find(
-    s => (s.props.node as ListingResultNode).expanded,
-  )
-  return hit ? hit.id : null
-}
-
 export function resultImageUrl(platform: ListingResultNode['platform'], mode: AssetMode): string {
   if (platform === 'ad') return mode === 'promo' ? IMAGES.promo : IMAGES.lifestyle
   if (platform === 'shopify') return IMAGES.lifestyle
@@ -625,7 +490,6 @@ function draftToResult(draft: PlatformDraft, mode: AssetMode): ListingResultNode
     script: [],
     note: '',
     suggestedTitle: draft.suggestedTitle ?? '',
-    expanded: false,
     artifactId: draft.id,
     policyVersion: draft.policyVersion ?? '',
     factRefs: draft.titleFactRefs ?? [],
@@ -662,7 +526,6 @@ function adResult(mode: AssetMode): ListingResultNode {
     script: AD_CUT.script,
     note: AD_CUT.note,
     suggestedTitle: '',
-    expanded: false,
     artifactId: 'ad',
     policyVersion: '',
     factRefs: [],

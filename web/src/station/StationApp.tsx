@@ -35,6 +35,7 @@ import {
   type ListingResultSource,
 } from './listingApi';
 import { fallbackRules, fetchRules, toSafeMessage, type RulesResult } from './rulesApi';
+import { ListingInspector } from './ListingInspector';
 import { MigrationPanel } from './MigrationPanel';
 import { StationAgent } from './StationAgent';
 import { StationSidebar } from './StationSidebar';
@@ -339,6 +340,10 @@ export function StationApp() {
       {migrationOpen && editor && (
         <MigrationPanel editor={editor} onClose={() => setMigrationOpen(false)} />
       )}
+
+      {/* Viewport-level listing detail. Reads the shapes, never writes them, so
+          the canvas geometry and camera are untouched while it is open. */}
+      {editor && <ListingInspector editor={editor} />}
 
       {toast && (
         <div className={styles.toast} role="status">
