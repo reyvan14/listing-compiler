@@ -77,6 +77,28 @@
 不虚构未来平台政策。
 详见 `docs/PRODUCT.md`。
 
+## 批量迁移中心（Phase 2）
+
+单 SKU 的影响面分析扩展到整个组合。画布顶部「批量迁移中心」。
+
+| 接口 | 说明 |
+|---|---|
+| `GET /api/portfolio/template` | 下载导入模板（模板本身即合法输入） |
+| `POST /api/portfolio/import` | 导入 CSV / XLSX，逐行校验；坏行只报错不丢好行 |
+| `POST /api/portfolio/impact` | 组合级影响面：SKU × 平台 × 字段 × 状态 × 原因 |
+| `POST /api/portfolio/apply` | 批量应用；`review_required` 行会被拒绝而非静默应用 |
+| `POST /api/portfolio/rollback` | 回滚整批，或只回滚一个 SKU |
+| `POST /api/portfolio/report` | 审计报告 JSON（`?format=html` 可读版） |
+
+行状态：`unaffected` / `safe_patch` / `review_required` / `blocked` / `applied` / `rolled_back`，
+计数全部由真实分析结果得出，不是写死的示例数字。
+
+导入列：`sku`、`product_name`、`selling_points`（`|` 或换行分隔）、`platforms`（`;` 分隔）、
+`evidence_sources`（可选）。演示组合见 `demo/evidence/portfolio.csv`（含一行故意写坏的数据）。
+
+**边界**：批量应用只改写本地产物，随时可回滚；本工具不做任何平台发布动作。
+`review_required` 的补丁不能通过批量批准通道应用，必须逐项人工处理。
+
 ## 启动
 
 ```bash

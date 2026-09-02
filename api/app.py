@@ -5,13 +5,14 @@ from typing import Any, Literal
 
 from fastapi import FastAPI, File, Form, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import evidence
 import migration
 import policy
+import portfolio
 from agent import agent_reply
 from checker import apply_checks
 from generate import generate_drafts
@@ -273,6 +274,120 @@ def evidence_gate(body: EvidenceGateBody):
             },
         },
     }
+
+
+# --------------------------------------------------------------------------- #
+# Batch portfolio migration. Reuses the deterministic single-SKU engine; no    #
+# model is called, and nothing here publishes to any marketplace.              #
+# --------------------------------------------------------------------------- #
+
+
+@app.get("/api/portfolio/template")
+def portfolio_template():
+    """Downloadable CSV template for a portfolio import."""
+    return Response(
+        content=portfolio.TEMPLATE_CSV,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="portfolio-template.csv"'},
+    )
+
+
+@app.post("/api/portfolio/import")
+async def portfolio_import(file: UploadFile = File(...)):
+    """Parse a CSV/XLSX portfolio. Malformed rows are reported, not fatal."""
+    data = await file.read()
+    name = (file.filename or "").lower()
+    family = "xlsx" if name.endswith(".xlsx") else "csv"
+    if not name.endswith((".csv", ".xlsx")):
+        return _bad("仅支持 CSV 或 XLSX 组合文件。", "unsupported_type", 415)
+    if len(data) > evidence.store.MAX_UPLOAD_BYTES:
+        return _bad("文件过大。", "file_too_large", 413)
+    return {"code": 0, "data": portfolio.parse_portfolio(data, family)}
+
+
+class PortfolioAnalyzeBody(BaseModel):
+    skus: list[dict[str, Any]] = Field(default_factory=list)
+    base_policy_version: str | None = None
+    candidate_policy_version: str | None = None
+    #: sku -> replacement selling points, for a product-fact drift.
+    points_override: dict[str, str] = Field(default_factory=dict)
+
+
+@app.post("/api/portfolio/impact")
+def portfolio_impact(body: PortfolioAnalyzeBody):
+    try:
+        data = portfolio.analyze_portfolio(
+            body.skus,
+            base_policy_version=body.base_policy_version,
+            candidate_policy_version=body.candidate_policy_version,
+            points_override=body.points_override,
+        )
+    except policy.PolicyError as exc:
+        return _bad(str(exc), "unknown_policy_version")
+    return {"code": 0, "data": data}
+
+
+class PortfolioApplyBody(BaseModel):
+    artifacts: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    approved: list[dict[str, Any]] = Field(default_factory=list)
+    candidate_policy_version: str | None = None
+
+
+@app.post("/api/portfolio/apply")
+def portfolio_apply(body: PortfolioApplyBody):
+    """Apply approved patches across the batch.
+
+    Rows marked review_required are rejected rather than applied, so bulk
+    approval of the safe set can never widen into approving the risky ones.
+    """
+    try:
+        data = portfolio.apply_batch(
+            body.artifacts,
+            body.approved,
+            candidate_policy_version=body.candidate_policy_version,
+        )
+    except policy.PolicyError as exc:
+        return _bad(str(exc), "unknown_policy_version")
+    return {"code": 0, "data": data}
+
+
+class PortfolioRollbackBody(BaseModel):
+    snapshot: dict[str, Any] = Field(default_factory=dict)
+    #: omit to roll the whole batch back, or name one SKU
+    sku: str | None = None
+
+
+@app.post("/api/portfolio/rollback")
+def portfolio_rollback(body: PortfolioRollbackBody):
+    try:
+        data = portfolio.rollback_batch(body.snapshot, only_sku=body.sku)
+    except ValueError as exc:
+        return _bad(str(exc), "bad_snapshot")
+    return {"code": 0, "data": data}
+
+
+class PortfolioReportBody(BaseModel):
+    analysis: dict[str, Any] = Field(default_factory=dict)
+    apply_result: dict[str, Any] | None = None
+    status: str = "candidate"
+    approver: str = ""
+    evidence_versions: list[dict[str, Any]] | None = None
+    rollback: dict[str, Any] | None = None
+
+
+@app.post("/api/portfolio/report")
+def portfolio_report(body: PortfolioReportBody, format: str = Query("json")):
+    report = portfolio.build_batch_report(
+        analysis=body.analysis,
+        apply_result=body.apply_result,
+        status=body.status,
+        approver=body.approver,
+        evidence_versions=body.evidence_versions,
+        rollback=body.rollback,
+    )
+    if format == "html":
+        return HTMLResponse(portfolio.render_batch_report_html(report))
+    return {"code": 0, "data": report}
 
 
 class MediaImageBody(BaseModel):

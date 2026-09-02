@@ -37,6 +37,7 @@ import {
 import { fallbackRules, fetchRules, toSafeMessage, type RulesResult } from './rulesApi';
 import { ListingInspector } from './ListingInspector';
 import { MigrationPanel } from './MigrationPanel';
+import { PortfolioPanel } from './PortfolioPanel';
 import { StationAgent } from './StationAgent';
 import { StationSidebar } from './StationSidebar';
 import styles from './nodes.module.scss';
@@ -144,6 +145,7 @@ export function StationApp() {
   const [screen, setScreen] = useState<StationScreen>('empty');
   const [rulesOpen, setRulesOpen] = useState(false);
   const [migrationOpen, setMigrationOpen] = useState(false);
+  const [portfolioOpen, setPortfolioOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [editor, setEditor] = useState<Editor | null>(null);
   const [source, setSource] = useState<ListingResultSource | null>(null);
@@ -308,6 +310,14 @@ export function StationApp() {
           >
             规则变更 / 迁移
           </button>
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            id="station-portfolio"
+            onClick={() => setPortfolioOpen(true)}
+          >
+            批量迁移
+          </button>
         </div>
       </header>
 
@@ -340,6 +350,10 @@ export function StationApp() {
       {migrationOpen && editor && (
         <MigrationPanel editor={editor} onClose={() => setMigrationOpen(false)} />
       )}
+
+      {/* Portfolio-wide migration. A table-shaped problem, so it is a compact
+          dashboard rather than hundreds of canvas nodes. */}
+      {portfolioOpen && <PortfolioPanel onClose={() => setPortfolioOpen(false)} />}
 
       {/* Viewport-level listing detail. Reads the shapes, never writes them, so
           the canvas geometry and camera are untouched while it is open. */}
