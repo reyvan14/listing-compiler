@@ -24,7 +24,7 @@
 
 | 步骤 | 接口 | 说明 |
 |---|---|---|
-| 政策快照 | `GET /api/policy/snapshots` | 版本化政策包（current / candidate），含出处 URL、生效日、摘录日。 |
+| 政策快照 | `GET /api/policy/snapshots` | 版本化政策包（current / candidate / historical），含出处 URL、生效日、摘录日。 |
 | 政策 diff | `GET /api/policy/diff?base=&candidate=` | 确定性比较，返回新增 / 移除 / 变更（旧值 → 新值）。不调用模型。 |
 | 影响面分析 | `POST /api/migration/impact` | 哪些产物受影响 / 不受影响、原因（SKU 事实 / 政策 / 两者）、需重编译 / 可复用的字段。 |
 | 影子编译 | `POST /api/migration/candidate` | 只针对受影响的平台 / 字段，请求模型返回 **JSON patch**（未配置模型时走确定性回退）。当前产物不被改写。 |
@@ -32,7 +32,9 @@
 | 回滚 | `POST /api/migration/rollback` | 确定性还原，不调用模型。 |
 | 迁移报告 | `POST /api/migration/report`（`?format=html` 可读版） | 旧 / 新规则版本、变更规则、出处、受影响 / 未受影响计数、改写 / 保留字段、待人工项、前后校验、状态、时间戳。 |
 
-画布上的「规则变更 / 迁移」面板串起这套流程，并内置两个确定性本地演示场景（平台政策漂移 / SKU 事实漂移）。
+画布上的「规则变更 / 迁移」面板串起这套流程，并内置两个确定性本地演示场景（Amazon 2025
+真实历史政策迁移回放 / SKU 事实漂移）。政策回放基于 Amazon 2025-01-21 官方标题规则，
+不虚构未来平台政策。
 详见 `docs/PRODUCT.md`。
 
 ## 启动

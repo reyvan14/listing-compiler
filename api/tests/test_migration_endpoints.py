@@ -12,8 +12,8 @@ from tests.helpers import POINTS_300, POINTS_350, demo_artifacts, demo_facts
 
 client = TestClient(app_module.app)
 
-AMAZON_BASE = "amazon-us-2025.03"
-AMAZON_CAND = "amazon-us-2026.03-candidate"
+AMAZON_BASE = "amazon-us-pre-2025.01.21"
+AMAZON_CAND = "amazon-us-2025.01.21"
 
 
 def _impact_body(points_before=POINTS_350, points_after=POINTS_300, **extra):

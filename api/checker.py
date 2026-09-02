@@ -140,13 +140,30 @@ def apply_checks(
     checks: list[dict[str, str]] = []
 
     if platform == "amazon":
-        ok = 0 < len(title) <= 200
+        rule_failures = []
+        if _policy is not None:
+            try:
+                results = _policy.evaluate_snapshot(
+                    _policy.current_snapshot("amazon"), {"title": title}
+                )
+                rule_failures = [
+                    result for result in _policy.blocking_failures(results)
+                    if result.rule_id.startswith("amazon.title.")
+                ]
+            except Exception:  # pragma: no cover - defensive fallback
+                rule_failures = []
+        ok = bool(title) and not rule_failures and len(title) <= 200
+        failed_details = "；".join(result.detail for result in rule_failures)
         checks.append(
             _check(
                 "title",
-                "标题长度",
+                "标题规则",
                 "pass" if ok else "fix",
-                "英文字段完整，未超常见 200 字符上限。" if ok else f"标题 {len(title)} 字符，需落在 1–200。",
+                (
+                    "不超过 200 字符，未发现禁用字符或超限重复词。"
+                    if ok
+                    else failed_details or f"标题 {len(title)} 字符，需落在 1–200。"
+                ),
             )
         )
         bullets = [f for f in fields if str(f.get("label", "")).startswith("五点")]

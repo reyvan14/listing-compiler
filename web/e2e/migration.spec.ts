@@ -112,15 +112,15 @@ test('P0.B rule source, versions and effective dates are visible', async ({ page
   await startPolicyDemo(page);
 
   const card = page.locator('#migration-policy-card');
-  await expect(card).toContainText('amazon-us-2025.03');
-  await expect(card).toContainText('amazon-us-2026.03-candidate');
-  await expect(card).toContainText('2025-03-01');
-  await expect(card).toContainText('2026-03-15');
+  await expect(card).toContainText('amazon-us-pre-2025.01.21');
+  await expect(card).toContainText('amazon-us-2025.01.21');
+  await expect(card).toContainText('2025-01-20');
+  await expect(card).toContainText('2025-01-21');
 
   const link = card.locator('a').first();
   await expect(link).toHaveAttribute('href', /^https:\/\/sellercentral\.amazon\.com\/.+/);
 
-  // the diff shows the 200 -> 80 change and the two added rules
+  // the diff shows the real enforcement change and the two added rules
   await expect(card).toContainText('amazon.title.max_length');
   await expect(card).toContainText('amazon.title.prohibited_chars');
   await expect(card).toContainText('amazon.title.repeated_word_limit');
@@ -160,7 +160,8 @@ test('P0.G applying a candidate changes only the approved field', async ({ page 
   const amzA = after.find(c => c.platform === 'amazon')!;
 
   expect(amzA.title).not.toBe(amzB.title);
-  expect(amzA.title.length).toBeLessThanOrEqual(80);
+  expect(amzA.title).not.toContain('!');
+  expect((amzA.title.toLowerCase().match(/cup/g) ?? []).length).toBeLessThanOrEqual(2);
   expect(amzA.fields).toEqual(amzB.fields); // bullets untouched
   expect(amzA.status).toBe('applied');
 

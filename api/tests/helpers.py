@@ -41,8 +41,16 @@ def draft_to_artifact(draft: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def demo_artifacts(points: str = POINTS_350, name: str = NAME) -> list[dict[str, Any]]:
+def demo_artifacts(
+    points: str = POINTS_350,
+    name: str = NAME,
+    *,
+    legacy_policy_violation: bool = False,
+) -> list[dict[str, Any]]:
     drafts = fallback_drafts(name, points, "compliant", ["amazon", "tiktok", "shopify"])
+    if legacy_policy_violation:
+        amazon = next(draft for draft in drafts if draft["id"] == "amazon")
+        amazon["title"] = f'{amazon["title"]} ! Cup Cup Cup'
     return [draft_to_artifact(d) for d in drafts]
 
 

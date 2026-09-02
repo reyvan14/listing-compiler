@@ -7,7 +7,7 @@ import type { Artifact, CandidatePatch, ImpactRow, ImpactSummary } from './types
 export type PolicySnapshotMeta = {
   platform: string;
   version: string;
-  status: 'current' | 'candidate';
+  status: 'current' | 'candidate' | 'historical';
   effective_date: string;
   excerpt_date: string;
   source_name: string;

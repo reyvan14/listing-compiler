@@ -28,7 +28,7 @@
 
 | 能力 | 实现 | 说明 |
 |---|---|---|
-| 版本化政策包 | `api/policy/` | 每个快照含 platform / version / effective_date / excerpt_date / source_url / rules / status（current \| candidate）。内置 Amazon US 当前 + 候选、TikTok Shop US 当前、Shopify 当前。规则可执行：标题长度、禁用字符、同词重复上限、白底主图（说明性）。 |
+| 版本化政策包 | `api/policy/` | 每个快照含 platform / version / effective_date / excerpt_date / source_url / rules / status（current \| candidate \| historical）。内置 Amazon US 当前 + 2025 历史回放基线、TikTok Shop US 当前、Shopify 当前。规则可执行：标题长度、禁用字符、同词重复上限、白底主图（说明性）。 |
 | 确定性政策 diff | `api/policy/diff.py` | 比较两份快照，返回新增 / 移除 / 变更（含旧值、新值、受影响字段、出处、生效日）。不调用模型。 |
 | 稳定 SKU 事实 ID | `api/skufacts.py` | 品名 = `name`，每条非空卖点行 = `fact-1`、`fact-2`…。生成的每个字段带 `factRefs`（引用的事实 ID），非法引用被安全忽略。 |
 | 影响面分析（blast radius） | `api/migration.py::analyze_impact` | 回答：哪些产物受影响 / 不受影响、原因（SKU 事实 / 政策 / 两者）、需重编译的字段、可复用的字段。Amazon-only 政策变更不会标记 TikTok / Shopify；无依赖元数据的旧产物走保守回退并说明原因。 |
@@ -45,7 +45,7 @@
 
 ## 内置演示场景
 
-1. **平台政策漂移**：启用 Amazon 候选政策 → 仅 Amazon 产物「已过期」→ 展示规则 diff 与受影响字段 →
+1. **真实政策迁移回放**：从 Amazon 2025-01-20 历史基线迁移到 2025-01-21 已生效标题规则 → 仅 Amazon 产物「已过期」→ 展示规则 diff 与受影响字段 →
    构建 Amazon-only 候选补丁 → TikTok / Shopify / 图片 / 无关视频保持不变 → 批准 → 回滚。
 2. **SKU 事实漂移**：把容量从 350ml 改为 300ml → 引用容量的产物「已过期」→ 无关素材仍可复用 →
    候选编译只改与容量相关的内容 → 展示保留字段计数。
@@ -54,8 +54,8 @@
 
 ## checker 当前覆盖
 
-1. Amazon 标题字符数与五点数量。
-2. TikTok Shop 标题字符数（25–200，已对照 `api/policy/snapshots/tiktok-us-current.yaml` 复核，未变更）。
+1. Amazon 标题上限、禁用字符、同词重复上限与五点数量。
+2. TikTok Shop 标题字符数采用较保守的 25–200 发布规则；官方质量分层页另写 25–255，差异已记录在 `api/policy/snapshots/tiktok-us-current.yaml`，不混写为统一硬性阈值。
 3. Shopify 标题与长描述。
 4. 非 Shopify 草稿中的 BPA-Free 关键词。
 5. promo 模式下的货架图片用途冲突。

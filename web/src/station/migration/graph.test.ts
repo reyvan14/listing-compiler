@@ -93,8 +93,8 @@ describe('propagateStale — policy change', () => {
         platform: 'amazon',
         fields: ['amazon:title'],
         blockingFields: ['amazon:title'],
-        baseVersion: 'amazon-us-2025.03',
-        candidateVersion: 'amazon-us-2026.03-candidate',
+        baseVersion: 'amazon-us-pre-2025.01.21',
+        candidateVersion: 'amazon-us-2025.01.21',
         ruleIds: ['amazon.title.max_length'],
       },
     });

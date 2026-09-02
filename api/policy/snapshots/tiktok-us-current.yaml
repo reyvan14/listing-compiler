@@ -15,7 +15,12 @@ display:
   image_label: 商品卡主图
   image_summary: 商品卡主图偏白底、无加字；≠ 信息流广告封面
 notes: >-
-  已对照 source_url 摘录（excerpt_date 2026-08-25）复核标题阈值，维持 25–200 字符，未变更。
+  已对照 source_url 摘录复核标题阈值，发布规则仍写 25–200 字符。TikTok 另一个
+  “Product Detail Pages & Listing Quality Guidelines”页面将 Good 质量档写为 25–255；
+  两页口径不一致，因此本工具采用更保守的 25–200 作为发布前校验，不把 255
+  误写成统一硬性上限。
+reference_name: TikTok Shop — Product Detail Pages & Listing Quality Guidelines
+reference_url: https://seller-us.tiktok.com/university/essay?identity=1&knowledge_id=481891871868714&role=1
 rules:
   - id: tiktok.title.min_length
     kind: title_min_length

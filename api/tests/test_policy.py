@@ -30,10 +30,10 @@ _GOOD = {
 def test_bundled_snapshots_load_and_validate():
     reg = policy.load_snapshots()
     assert {s.platform for s in reg.values()} == {"amazon", "tiktok", "shopify"}
-    # exactly one current per platform, plus the amazon candidate
+    # exactly one current per platform, plus the Amazon historical replay baseline
     currents = [s for s in reg.values() if s.status == "current"]
     assert len(currents) == 3
-    assert any(s.status == "candidate" and s.platform == "amazon" for s in reg.values())
+    assert any(s.status == "historical" and s.platform == "amazon" for s in reg.values())
     for snap in reg.values():
         assert snap.rules
         assert snap.effective_date.count("-") == 2 and snap.excerpt_date.count("-") == 2
@@ -70,11 +70,11 @@ def test_parse_rejects_duplicate_rule_ids():
 # --------------------------------------------------------------------------- #
 
 
-def test_amazon_current_to_candidate_diff_is_deterministic():
-    base = policy.current_snapshot("amazon")
-    cand = policy.candidate_snapshot("amazon")
-    d1 = policy.diff_snapshots(base, cand).to_dict()
-    d2 = policy.diff_snapshots(base, cand).to_dict()
+def test_amazon_historical_to_current_diff_is_deterministic():
+    base = policy.historical_snapshot("amazon")
+    current = policy.current_snapshot("amazon")
+    d1 = policy.diff_snapshots(base, current).to_dict()
+    d2 = policy.diff_snapshots(base, current).to_dict()
     assert d1 == d2
     assert d1["is_empty"] is False
     assert [r["id"] for r in d1["added"]] == [
@@ -86,7 +86,7 @@ def test_amazon_current_to_candidate_diff_is_deterministic():
     change = d1["changed"][0]
     assert change["rule_id"] == "amazon.title.max_length"
     assert change["old"]["params"]["max"] == 200 and change["old"]["severity"] == "warn"
-    assert change["new"]["params"]["max"] == 80 and change["new"]["severity"] == "blocking"
+    assert change["new"]["params"]["max"] == 200 and change["new"]["severity"] == "blocking"
     assert d1["affected_fields"] == ["amazon:title"]
 
 
@@ -102,12 +102,12 @@ def test_diff_across_platforms_raises():
 
 
 # --------------------------------------------------------------------------- #
-# 3 + 4. executable Amazon candidate rules                                     #
+# 3 + 4. executable current Amazon rules                                       #
 # --------------------------------------------------------------------------- #
 
 
 def _amazon_rule(rule_id: str):
-    return policy.candidate_snapshot("amazon").rule_map()[rule_id]
+    return policy.current_snapshot("amazon").rule_map()[rule_id]
 
 
 def test_amazon_prohibited_char_rule():
@@ -127,11 +127,11 @@ def test_amazon_repeated_word_rule():
     assert bad.ok is False and "cup" in bad.detail
 
 
-def test_amazon_candidate_title_max_is_80_and_blocking():
+def test_amazon_current_title_max_is_200_and_blocking():
     rule = _amazon_rule("amazon.title.max_length")
-    assert rule.params["max"] == 80 and rule.severity == "blocking"
-    assert policy.evaluate_rule(rule, {"title": "x" * 81}).ok is False
-    assert policy.evaluate_rule(rule, {"title": "x" * 80}).ok is True
+    assert rule.params["max"] == 200 and rule.severity == "blocking"
+    assert policy.evaluate_rule(rule, {"title": "x" * 201}).ok is False
+    assert policy.evaluate_rule(rule, {"title": "x" * 200}).ok is True
 
 
 # --------------------------------------------------------------------------- #

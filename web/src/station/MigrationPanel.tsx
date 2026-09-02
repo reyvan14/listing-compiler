@@ -35,8 +35,8 @@ import { diffFacts } from './migration/skuFacts';
 import { patchKey, type CandidatePatch, type ImpactRow } from './migration/types';
 import styles from './nodes.module.scss';
 
-const AMAZON_BASE = 'amazon-us-2025.03';
-const AMAZON_CANDIDATE = 'amazon-us-2026.03-candidate';
+const AMAZON_BASE = 'amazon-us-pre-2025.01.21';
+const AMAZON_CANDIDATE = 'amazon-us-2025.01.21';
 
 type Trigger =
   | { kind: 'policy'; platform: string; base: string; candidate: string }
@@ -93,7 +93,7 @@ export function MigrationPanel({ editor, onClose }: { editor: Editor; onClose: (
     setError('');
     setBusy('setup');
     try {
-      const src = await ensureListingCards(editor);
+      const src = await ensureListingCards(editor, { policyReplay: true });
       if (src !== 'exists') setSourceNote(src);
       dispatch({ type: 'reset', current: collectArtifacts(editor) });
       const diff = await fetchPolicyDiff(AMAZON_BASE, AMAZON_CANDIDATE);
@@ -312,7 +312,7 @@ export function MigrationPanel({ editor, onClose }: { editor: Editor; onClose: (
                 disabled={busy !== ''}
                 onClick={startPolicyDemo}
               >
-                演示 1：平台政策漂移（Amazon 候选政策）
+                演示 1：真实政策迁移回放（Amazon 2025）
               </button>
               <button
                 type="button"
@@ -325,14 +325,15 @@ export function MigrationPanel({ editor, onClose }: { editor: Editor; onClose: (
               </button>
             </div>
             <p className={styles.help}>
-              两个场景都是确定性的本地演示，不调用真实模型、不代表线上店铺数据。
+              政策场景回放 Amazon 2025-01-21 已生效规则；SKU 场景使用确定性的本地演示。
+              两者都不调用真实模型，也不代表线上店铺数据。
             </p>
           </section>
         )}
 
         {trigger?.kind === 'policy' && policyDiff && (
           <section className={styles.migSection} id="migration-policy-card">
-            <div className={styles.menuTitle}>政策差异</div>
+            <div className={styles.menuTitle}>政策差异（历史基线 → 已生效规则）</div>
             <p className={styles.rulesNote}>
               <strong>{policyDiff.platform}</strong>　<code>{policyDiff.base_version}</code>
               （生效 {policyDiff.base_effective_date}）　→

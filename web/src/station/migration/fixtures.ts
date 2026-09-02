@@ -11,7 +11,7 @@ export function demoArtifacts(): Artifact[] {
       kind: 'listing',
       revision: 1,
       status: 'current',
-      policyVersion: 'amazon-us-2025.03',
+      policyVersion: 'amazon-us-2025.01.21',
       title: 'Collapsible Silicone Travel Cup 350ml, Leak-Proof Lid',
       titleFactRefs: ['name', 'fact-3'],
       fields: [

@@ -24,6 +24,7 @@ import {
   localSampleDrafts,
   type ListingResultSource,
 } from '../listingApi';
+import type { PlatformDraft } from '../data';
 import { computeFactRefs, parseSkuFacts } from './skuFacts';
 import type { Artifact, ImpactRow, MigrationStatus } from './types';
 
@@ -147,6 +148,7 @@ export function resetCanvasMigration(editor: Editor): void {
  * so the caller can surface the honest "本地示例 / 规则兜底 / 模型生成" label. */
 export async function ensureListingCards(
   editor: Editor,
+  options: { policyReplay?: boolean } = {},
 ): Promise<ListingResultSource | 'exists'> {
   if (collectArtifacts(editor).some(a => a.kind === 'listing')) return 'exists';
   const sku = findSkuShape(editor);
@@ -163,15 +165,44 @@ export async function ensureListingCards(
   };
   try {
     const { drafts, source } = await fetchListingDrafts(input, { timeoutMs: 20_000 });
-    spawnPlatformResults(editor, live, drafts);
+    spawnPlatformResults(editor, live, policyReplayDrafts(drafts, options.policyReplay));
     announceListingSource(source);
     return source;
   } catch {
     const { drafts, source } = localSampleDrafts(input);
-    spawnPlatformResults(editor, live, drafts);
+    spawnPlatformResults(editor, live, policyReplayDrafts(drafts, options.policyReplay));
     announceListingSource(source);
     return source;
   }
+}
+
+/** A deliberately non-compliant pre-2025 title used only when the user chooses
+ * the historical policy replay. It lets the real prohibited-character and
+ * repeated-word rules produce a visible minimal patch without inventing a
+ * future platform policy. */
+function policyReplayDrafts(
+  drafts: PlatformDraft[],
+  enabled = false,
+): PlatformDraft[] {
+  if (!enabled) return drafts;
+  return drafts.map(draft => {
+    if (draft.id !== 'amazon') return draft;
+    return {
+      ...draft,
+      title: `${draft.title} ! Cup Cup Cup`,
+      policyVersion: 'amazon-us-pre-2025.01.21',
+      checks: draft.checks.map(check =>
+        check.id === 'title'
+          ? {
+              ...check,
+              label: '历史标题基线',
+              state: 'pass',
+              detail: '回放基线仅检查 200 字符上限；新规则将在迁移分析中发现。',
+            }
+          : check,
+      ),
+    };
+  });
 }
 
 /** Scenario 2 driver: rewrite the capacity selling-point line on the SKU node

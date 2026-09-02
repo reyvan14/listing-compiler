@@ -2,8 +2,9 @@
 
 A *policy snapshot* is a dated excerpt of one marketplace's rules, bundled in the
 repo (``policy/snapshots/*.yaml``) so the demo is reproducible offline. Each
-snapshot is either ``current`` (the rule set in force) or ``candidate`` (an
-announced, not-yet-adopted rule set). Rules are *executable*: every rule has a
+snapshot is ``current`` (the rule set in force), ``candidate`` (an announced,
+not-yet-adopted rule set), or ``historical`` (a dated replay baseline). Rules are
+*executable*: every rule has a
 ``kind`` that :mod:`policy.engine` knows how to evaluate against an artifact.
 
 Nothing here calls a model or the network.
@@ -21,7 +22,7 @@ import yaml
 
 _SNAP_DIR = Path(__file__).resolve().parent / "snapshots"
 
-VALID_STATUS = ("current", "candidate")
+VALID_STATUS = ("current", "candidate", "historical")
 VALID_SEVERITY = ("warn", "blocking")
 
 # kind -> required param names (all params beyond these are allowed but ignored)
@@ -267,6 +268,13 @@ def current_snapshot(platform: str) -> PolicySnapshot:
 def candidate_snapshot(platform: str) -> PolicySnapshot | None:
     for snap in load_registry().values():
         if snap.platform == platform and snap.status == "candidate":
+            return snap
+    return None
+
+
+def historical_snapshot(platform: str) -> PolicySnapshot | None:
+    for snap in load_registry().values():
+        if snap.platform == platform and snap.status == "historical":
             return snap
     return None
 

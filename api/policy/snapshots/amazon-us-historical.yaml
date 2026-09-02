@@ -1,0 +1,39 @@
+# Historical replay baseline immediately before Amazon's 2025 title-policy
+# update. The baseline date is a replay boundary, not a separately announced
+# policy effective date. It is bundled so the migration demo stays offline and
+# reproducible without pretending a future rule exists.
+platform: amazon
+market: US
+version: amazon-us-pre-2025.01.21
+status: historical
+effective_date: "2025-01-20"
+excerpt_date: "2026-09-02"
+source_name: Amazon Seller Forums — 2025 商品标题政策更新公告
+source_url: https://sellercentral.amazon.com/seller-forums/discussions/t/b2b15728-0d43-453e-974f-59eb63f73059/
+reference_name: Amazon Seller Central 产品图片与标题要求 (G1881)
+reference_url: https://sellercentral.amazon.com/help/hub/reference/external/G1881
+summary: >-
+  用作历史迁移回放的 2025-01-20 基线：标题上限仍按 200 字符规则检查，但尚未启用
+  次日公告生效的禁用字符与同词重复限制。该文件不是当前政策，也不是未来政策预测。
+display:
+  name: Amazon
+  role: 货架
+  image_label: 白底主图 1:1
+  image_summary: 纯白 RGB 255,255,255 · 主体约 85% · 主图禁加字
+notes: >-
+  effective_date 表示历史回放的基线截点。它用于演示从旧校验集合迁移到 Amazon
+  2025-01-21 官方规则，不声称 Amazon 在该日另行发布过一份政策。
+rules:
+  - id: amazon.title.max_length
+    kind: title_max_length
+    field: amazon:title
+    severity: warn
+    params:
+      max: 200
+    description: 标题建议不超过 200 字符。
+  - id: amazon.main_image.white_background
+    kind: image_white_background
+    field: amazon:main_image
+    severity: warn
+    params: {}
+    description: 主图纯白背景（RGB 255,255,255），主体占比 ≥ 85%，不叠加文字 / logo / 边框 / 水印。

@@ -15,8 +15,8 @@ from tests.helpers import (
     legacy_artifact,
 )
 
-AMAZON_BASE = "amazon-us-2025.03"
-AMAZON_CAND = "amazon-us-2026.03-candidate"
+AMAZON_BASE = "amazon-us-pre-2025.01.21"
+AMAZON_CAND = "amazon-us-2025.01.21"
 
 
 # --------------------------------------------------------------------------- #
@@ -25,7 +25,7 @@ AMAZON_CAND = "amazon-us-2026.03-candidate"
 
 
 def test_amazon_policy_change_affects_amazon_only():
-    arts = demo_artifacts()
+    arts = demo_artifacts(legacy_policy_violation=True)
     facts = demo_facts()
     impact = migration.analyze_impact(
         arts,
@@ -42,11 +42,11 @@ def test_amazon_policy_change_affects_amazon_only():
     assert reason_types == {"policy"}
     amazon = impact["affected"][0]
     assert amazon["cause"] == "policy"
-    assert amazon["fields_to_regenerate"] == ["title"]  # 106-char demo title > 80
+    assert amazon["fields_to_regenerate"] == ["title"]  # legacy title has ! and Cup x3
 
 
 def test_policy_change_with_no_fact_change_leaves_media_untouched():
-    arts = demo_artifacts()
+    arts = demo_artifacts(legacy_policy_violation=True)
     arts.append(
         {"artifact_id": "amz-img", "platform": "amazon", "kind": "image",
          "revision": 1, "status": "current", "asset_refs": ["name"]}
@@ -153,7 +153,7 @@ def test_candidate_patches_reject_targets_outside_impact_set():
 
 
 def test_policy_title_patch_is_trimmed_and_passes_candidate_validation():
-    arts = demo_artifacts()
+    arts = demo_artifacts(legacy_policy_violation=True)
     facts = demo_facts()
     impact = migration.analyze_impact(
         arts, facts_before=facts, facts_after=facts,
@@ -164,7 +164,8 @@ def test_policy_title_patch_is_trimmed_and_passes_candidate_validation():
         base_policy_version=AMAZON_BASE, candidate_policy_version=AMAZON_CAND,
     )
     patch = next(p for p in out["patches"] if p["artifact_id"] == "amazon")
-    assert len(patch["candidate_value"]) <= 80
+    assert "!" not in patch["candidate_value"]
+    assert patch["candidate_value"].lower().count("cup") <= 2
     assert patch["validation"]["ok"] is True
     assert patch["triggering"]["kind"] == "policy"
 
@@ -256,7 +257,7 @@ def test_rollback_rejects_a_malformed_snapshot():
 
 
 def test_build_report_serialises_the_full_migration():
-    arts = demo_artifacts()
+    arts = demo_artifacts(legacy_policy_violation=True)
     facts = demo_facts()
     impact = migration.analyze_impact(
         arts, facts_before=facts, facts_after=facts,
