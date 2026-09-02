@@ -72,6 +72,13 @@ export type ListingResultNode = {
   checks: CheckItem[]
   script: string[]
   note: string
+  // self-healing Listing CI/CD dependency metadata (see ListingResultNode.tsx)
+  artifactId: string
+  policyVersion: string
+  factRefs: string[]
+  fieldMeta: { name: string; factRefs: string[] }[]
+  migrationStatus: string
+  staleReason: string
 }
 
 export const SKU_NODE_WIDTH = 300
@@ -236,12 +243,95 @@ export function focusAllResults(editor: Editor) {
   frameToBounds(editor, b, { minZoom: 0.72, maxZoom: 1, gutter: agentGutterPx(), fitAxis: 'width' })
 }
 
+/** Zoom to one shape by id (used by the migration panel's "click to focus"). */
+export function focusShape(editor: Editor, shapeId: string) {
+  const b = editor.getShapePageBounds(shapeId as TLShapeId)
+  if (!b) return frameStation(editor)
+  frameToBounds(editor, b, { minZoom: 0.6, maxZoom: 1.1, gutter: agentGutterPx() })
+}
+
+/** All listing_result shapes on the page, keyed by their artifactId (platform). */
+export function listingResultShapes(editor: Editor): Map<string, NodeShape> {
+  const out = new Map<string, NodeShape>()
+  for (const shape of editor.getCurrentPageShapes()) {
+    if (!editor.isShapeOfType(shape, 'node')) continue
+    const node = (shape as NodeShape).props.node
+    if (node.type !== 'listing_result') continue
+    out.set(node.artifactId || node.platform, shape as NodeShape)
+  }
+  return out
+}
+
+/**
+ * Stamp migration status on the matching result cards. Cards NOT named in
+ * `statuses` are left completely untouched — no updateNode call, so their
+ * values, ids and canvas positions never change.
+ */
+export function markMigrationStatus(
+  editor: Editor,
+  statuses: { artifactId: string; status: string; reason?: string }[],
+) {
+  const shapes = listingResultShapes(editor)
+  editor.run(() => {
+    for (const { artifactId, status, reason } of statuses) {
+      const shape = shapes.get(artifactId)
+      if (!shape) continue
+      updateNode<ListingResultNode>(
+        editor,
+        shape,
+        n => ({ ...n, migrationStatus: status, staleReason: reason ?? '' }),
+        false,
+      )
+    }
+  })
+}
+
+/** Reset every result card back to 'current' with no stale reason. */
+export function clearMigrationStatus(editor: Editor) {
+  const shapes = listingResultShapes(editor)
+  editor.run(() => {
+    for (const shape of shapes.values()) {
+      const node = shape.props.node as ListingResultNode
+      if (node.migrationStatus === 'current' && !node.staleReason) continue
+      updateNode<ListingResultNode>(
+        editor,
+        shape,
+        n => ({ ...n, migrationStatus: 'current', staleReason: '' }),
+        false,
+      )
+    }
+  })
+}
+
+/** Overwrite the title / fields of one result card (used when a migration is applied). */
+export function applyResultPatch(
+  editor: Editor,
+  artifactId: string,
+  patch: { title?: string; fields?: { label: string; value: string }[]; policyVersion?: string },
+) {
+  const shape = listingResultShapes(editor).get(artifactId)
+  if (!shape) return
+  updateNode<ListingResultNode>(
+    editor,
+    shape,
+    n => ({
+      ...n,
+      title: patch.title ?? n.title,
+      fields: patch.fields ?? n.fields,
+      policyVersion: patch.policyVersion ?? n.policyVersion,
+    }),
+    false,
+  )
+}
+
 export function worstCheckItem(checks: CheckItem[]): CheckItem | undefined {
   return checks.find(c => c.state === 'ad-only') ?? checks.find(c => c.state === 'fix') ?? checks[0]
 }
 
 export function resultBodyHeightPx(node: ListingResultNode): number {
   if (node.platform === 'ad') return 268
+  const migrationBanner =
+    node.migrationStatus && node.migrationStatus !== 'current' ? (node.staleReason ? 44 : 26) : 0
   const inner = RESULT_NODE_WIDTH - STATION_INNER_PAD
   // font sizes bumped for readability (see skuStation.module.scss) — keep the
   // geometry estimate in step so cards don't clip.
@@ -255,7 +345,7 @@ export function resultBodyHeightPx(node: ListingResultNode): number {
     const detailLines = check.detail ? Math.min(2, estimateTextLines(check.detail, inner - 8, 12)) : 0
     return sum + 22 + detailLines * 16
   }, 18)
-  return 28 + reasonH + 118 + 16 + titleLines * 20 + 10 + fieldsH + checksH + 32
+  return migrationBanner + 28 + reasonH + 118 + 16 + titleLines * 20 + 10 + fieldsH + checksH + 32
 }
 
 export function resultImageUrl(platform: ListingResultNode['platform'], mode: AssetMode): string {
@@ -277,12 +367,21 @@ function draftToResult(draft: PlatformDraft, mode: AssetMode): ListingResultNode
     name: draft.name,
     role: draft.role,
     title: draft.title,
-    fields: draft.fields,
+    fields: draft.fields.map(f => ({ label: f.label, value: f.value })),
     imageUrl: draft.imageUrl || resultImageUrl(draft.id, mode),
     imageLabel: draft.imageLabel,
     checks: draft.checks,
     script: [],
     note: '',
+    artifactId: draft.id,
+    policyVersion: draft.policyVersion ?? '',
+    factRefs: draft.titleFactRefs ?? [],
+    fieldMeta: draft.fields.map((f, i) => ({
+      name: f.field || `field-${i + 1}`,
+      factRefs: f.factRefs ?? [],
+    })),
+    migrationStatus: 'current',
+    staleReason: '',
   }
 }
 
@@ -309,6 +408,12 @@ function adResult(mode: AssetMode): ListingResultNode {
     ],
     script: AD_CUT.script,
     note: AD_CUT.note,
+    artifactId: 'ad',
+    policyVersion: '',
+    factRefs: [],
+    fieldMeta: [],
+    migrationStatus: 'current',
+    staleReason: '',
   }
 }
 

@@ -70,6 +70,9 @@ export const nodeShapeVersions = createShapePropsMigrationIds('node', {
 	AddImageGenResultAspectRatio: 20,
 	// SKU 上架编译器：删除假阶段进度 stepIndex，新增下游素材包 videoBrief/imageAssets。
 	AddSkuDownstreamArtifacts: 21,
+	// 自愈式 Listing CI/CD：listing_result 新增依赖元数据（artifactId/policyVersion/
+	// factRefs/fieldMeta）与迁移状态（migrationStatus/staleReason）。
+	AddListingMigrationFields: 22,
 })
 
 // 图片/视频「类型」改为传英文码（显示中文、存英文）。旧的中文值/缺失统一回填为默认。
@@ -215,6 +218,16 @@ export function backfillNodeProps(node: Record<string, unknown>): Record<string,
 			// 下一次生成成功时自然填充。
 			node.videoBrief ??= ''
 			if (!Array.isArray(node.imageAssets)) node.imageAssets = []
+			break
+		case 'listing_result':
+			// 自愈式 Listing CI/CD：依赖元数据 + 迁移状态。旧结果卡补默认值
+			// （artifactId 回填为 platform，其余为空/current），下次生成时按后端返回填充。
+			node.artifactId ??= typeof node.platform === 'string' ? node.platform : ''
+			node.policyVersion ??= ''
+			if (!Array.isArray(node.factRefs)) node.factRefs = []
+			if (!Array.isArray(node.fieldMeta)) node.fieldMeta = []
+			node.migrationStatus ??= 'current'
+			node.staleReason ??= ''
 			break
 		case 'load_image':
 			node.thumbnailUrl ??= null
@@ -469,6 +482,15 @@ export const nodeShapeMigrations = createShapePropsMigrationSequence({
 		{
 			// sku_listing：删 stepIndex、补 videoBrief/imageAssets（backfillNodeProps 含删字段，幂等）。
 			id: nodeShapeVersions.AddSkuDownstreamArtifacts,
+			up: (props) => ({
+				...props,
+				node: backfillNodeProps({ ...(props.node as Record<string, unknown>) }),
+			}),
+			down: 'retired',
+		},
+		{
+			// listing_result：补依赖元数据 + 迁移状态（backfillNodeProps 累积且幂等）。
+			id: nodeShapeVersions.AddListingMigrationFields,
 			up: (props) => ({
 				...props,
 				node: backfillNodeProps({ ...(props.node as Record<string, unknown>) }),

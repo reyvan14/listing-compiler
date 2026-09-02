@@ -1,5 +1,6 @@
 import { ApiError, postJson } from './apiClient';
 import { buildDrafts, type AssetMode, type PlatformDraft, type PlatformId } from './data';
+import { computeFactRefs, parseSkuFacts } from './migration/skuFacts';
 
 // What actually produced the drafts on screen. Persisted and shown on every
 // result screen — never a transient toast.
@@ -69,21 +70,39 @@ const LANE: Record<PlatformId, Pick<PlatformDraft, 'name' | 'role' | 'imageLabel
   shopify: { name: 'Shopify', role: '品牌站', imageLabel: '品牌站生活图' },
 };
 
-function normalizeDraft(raw: Partial<PlatformDraft>): PlatformDraft | null {
+function normalizeDraft(raw: Record<string, any>): PlatformDraft | null {
   if (raw.id !== 'amazon' && raw.id !== 'tiktok' && raw.id !== 'shopify') return null;
-  const lane = LANE[raw.id];
+  const lane = LANE[raw.id as PlatformId];
   return {
     id: raw.id,
     name: raw.name || lane.name,
     role: raw.role || lane.role,
     title: String(raw.title ?? ''),
-    fields: (raw.fields ?? []).map(field => ({
+    titleFactRefs: Array.isArray(raw.titleFactRefs)
+      ? raw.titleFactRefs.map(String)
+      : Array.isArray(raw.title_fact_refs)
+        ? raw.title_fact_refs.map(String)
+        : [],
+    policyVersion: String(raw.policyVersion ?? raw.policy_version ?? ''),
+    skuRevision: String(raw.skuRevision ?? raw.sku_revision ?? ''),
+    factIds: Array.isArray(raw.factIds)
+      ? raw.factIds.map(String)
+      : Array.isArray(raw.fact_ids)
+        ? raw.fact_ids.map(String)
+        : [],
+    fields: (raw.fields ?? []).map((field: any) => ({
       label: String(field.label ?? ''),
       value: String(field.value ?? ''),
+      field: field.field ? String(field.field) : undefined,
+      factRefs: Array.isArray(field.factRefs)
+        ? field.factRefs.map(String)
+        : Array.isArray(field.fact_refs)
+          ? field.fact_refs.map(String)
+          : undefined,
     })),
     imageLabel: raw.imageLabel || lane.imageLabel,
     imageUrl: raw.imageUrl || '',
-    checks: (raw.checks ?? []).flatMap(check => {
+    checks: (raw.checks ?? []).flatMap((check: any) => {
       if (check.state !== 'pass' && check.state !== 'fix' && check.state !== 'ad-only') return [];
       return [
         {
@@ -103,7 +122,7 @@ export type ListingDraftsResult = {
 };
 
 type ListingResponse = {
-  drafts?: Partial<PlatformDraft>[];
+  drafts?: Record<string, unknown>[];
   source?: BackendSource;
 };
 
@@ -143,13 +162,25 @@ export async function fetchListingDrafts(
   return { drafts, source: mapBackendSource(data.source) };
 }
 
-/** Explicit local sample data — only used behind a visible user action. */
+/** Explicit local sample data — only used behind a visible user action.
+ * Dependency metadata (factRefs) is computed client-side so the self-healing
+ * migration workflow still works when the backend is unreachable. */
 export function localSampleDrafts(input: ListingGenerateInput): ListingDraftsResult {
   const platforms = input.platforms.length
     ? input.platforms
     : (['amazon', 'tiktok', 'shopify'] as PlatformId[]);
-  return {
-    drafts: buildDrafts(input.assetMode).filter(d => platforms.includes(d.id)),
-    source: 'local-sample',
-  };
+  const facts = parseSkuFacts(input.productName, input.points);
+  const drafts = buildDrafts(input.assetMode)
+    .filter(d => platforms.includes(d.id))
+    .map(d => ({
+      ...d,
+      titleFactRefs: computeFactRefs(d.title, facts),
+      policyVersion: '',
+      factIds: Object.keys(facts),
+      fields: d.fields.map(f => ({
+        ...f,
+        factRefs: computeFactRefs(`${f.label} ${f.value}`, facts),
+      })),
+    }));
+  return { drafts, source: 'local-sample' };
 }

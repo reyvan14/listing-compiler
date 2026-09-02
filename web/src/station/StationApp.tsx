@@ -35,6 +35,7 @@ import {
   type ListingResultSource,
 } from './listingApi';
 import { fallbackRules, fetchRules, toSafeMessage, type RulesResult } from './rulesApi';
+import { MigrationPanel } from './MigrationPanel';
 import { StationAgent } from './StationAgent';
 import { StationSidebar } from './StationSidebar';
 import styles from './nodes.module.scss';
@@ -141,6 +142,7 @@ function readAgentCollapsed(): boolean {
 export function StationApp() {
   const [screen, setScreen] = useState<StationScreen>('empty');
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [migrationOpen, setMigrationOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [editor, setEditor] = useState<Editor | null>(null);
   const [source, setSource] = useState<ListingResultSource | null>(null);
@@ -297,6 +299,14 @@ export function StationApp() {
           >
             规则表
           </button>
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            id="station-migration"
+            onClick={() => setMigrationOpen(true)}
+          >
+            规则变更 / 迁移
+          </button>
         </div>
       </header>
 
@@ -325,6 +335,10 @@ export function StationApp() {
       </div>
 
       {rulesOpen && <RulesDrawer onClose={() => setRulesOpen(false)} returnFocusTo={rulesBtnRef} />}
+
+      {migrationOpen && editor && (
+        <MigrationPanel editor={editor} onClose={() => setMigrationOpen(false)} />
+      )}
 
       {toast && (
         <div className={styles.toast} role="status">
@@ -410,7 +424,7 @@ function RulesDrawer({
       <aside>
         <header>
           <div>
-            <div className={styles.kicker}>/api/rules · rules.yaml</div>
+            <div className={styles.kicker}>/api/rules · policy/snapshots</div>
             <h2 id="rules-title">公开条文，带出处和摘录日期</h2>
           </div>
           <button ref={closeRef} type="button" className={styles.btnGhost} onClick={onClose}>

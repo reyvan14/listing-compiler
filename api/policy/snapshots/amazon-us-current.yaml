@@ -1,0 +1,36 @@
+# Bundled policy snapshot. Not scraped at runtime — this is a dated excerpt of a
+# public policy page, kept in the repo so the demo is reproducible offline.
+platform: amazon
+market: US
+version: amazon-us-2025.03
+status: current
+effective_date: "2025-03-01"
+excerpt_date: "2026-08-25"
+source_name: Amazon Seller Central 产品图片与标题要求 (G1881)
+source_url: https://sellercentral.amazon.com/help/hub/reference/external/G1881
+reference_name: Amazon 官方产品拍摄要求 (sell.amazon.com)
+reference_url: https://sell.amazon.com/blog/product-photos
+summary: >-
+  商品主图需纯白背景（RGB 255,255,255），主体占据画面 85% 或以上，不得叠加文字、logo、边框或水印；
+  标题当前上限约 200 字符，且以建议形式给出。
+display:
+  name: Amazon
+  role: 货架
+  image_label: 白底主图 1:1
+  image_summary: 纯白 RGB 255,255,255 · 主体约 85% · 主图禁加字
+notes: >-
+  当前政策：标题长度以建议形式给出（warn），未强制字符集或重复词限制。
+rules:
+  - id: amazon.title.max_length
+    kind: title_max_length
+    field: amazon:title
+    severity: warn
+    params:
+      max: 200
+    description: 标题建议不超过 200 字符。
+  - id: amazon.main_image.white_background
+    kind: image_white_background
+    field: amazon:main_image
+    severity: warn
+    params: {}
+    description: 主图纯白背景（RGB 255,255,255），主体占比 ≥ 85%，不叠加文字 / logo / 边框 / 水印。

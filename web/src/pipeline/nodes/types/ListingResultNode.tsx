@@ -39,6 +39,17 @@ export const ListingResultNode = T.object({
   ),
   script: T.arrayOf(T.string),
   note: T.string,
+  // ---- self-healing Listing CI/CD dependency metadata --------------------
+  // Stable artifact id (= platform for a listing card), the policy version this
+  // card was compiled against, the SKU fact IDs the title depends on, and a
+  // per-field fact-ref map parallel to `fields`.
+  artifactId: T.string,
+  policyVersion: T.string,
+  factRefs: T.arrayOf(T.string),
+  fieldMeta: T.arrayOf(T.object({ name: T.string, factRefs: T.arrayOf(T.string) })),
+  // '' | current | stale | candidate | applied | rolled-back | needs-human-review
+  migrationStatus: T.string,
+  staleReason: T.string,
 })
 // Structurally identical to the hand-written type in ./skuStation; derived here
 // from the validator so the shape and its schema can't drift.
@@ -79,6 +90,12 @@ export class ListingResultNodeDefinition extends NodeDefinition<ListingResultNod
       checks: [],
       script: [],
       note: '',
+      artifactId: '',
+      policyVersion: '',
+      factRefs: [],
+      fieldMeta: [],
+      migrationStatus: '',
+      staleReason: '',
     }
   }
 
@@ -144,9 +161,25 @@ function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingR
   const copyLabel =
     copied === 'ok' ? '已复制标题' : copied === 'err' ? '复制失败，请手动选择' : '复制标题'
 
+  const migration =
+    node.migrationStatus && node.migrationStatus !== 'current' ? node.migrationStatus : ''
+  const MIGRATION_LABEL: Record<string, string> = {
+    stale: '已过期',
+    candidate: '候选补丁待批',
+    applied: '已应用',
+    'rolled-back': '已回滚',
+    'needs-human-review': '需人工复核',
+  }
+
   return (
     <div className={styles.body}>
       <Port shapeId={shape.id} portId="input" />
+      {migration && (
+        <div className={styles.migBanner} data-status={migration} role="status">
+          {MIGRATION_LABEL[migration] ?? migration}
+          {node.staleReason ? <small>{node.staleReason}</small> : null}
+        </div>
+      )}
       <p className={styles.role}>{node.role}</p>
       {stamp && <b className={`${styles.stamp} ${styles[stamp]}`}>{STAMP[stamp]}</b>}
       {worst && worst.state !== 'pass' && worst.detail && (

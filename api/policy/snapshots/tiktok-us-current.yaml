@@ -1,0 +1,39 @@
+# Bundled policy snapshot — dated excerpt of TikTok Shop US seller guidance.
+platform: tiktok
+market: US
+version: tiktok-us-2025.03
+status: current
+effective_date: "2025-03-01"
+excerpt_date: "2026-08-25"
+source_name: TikTok Shop 美国卖家大学 — Listing 优化
+source_url: https://seller-us.tiktok.com/university/essay?knowledge_id=7073362639816491&lang=en
+summary: >-
+  商品标题 25–200 字符；商品卡主图偏白底、无加字，且不同于信息流广告封面。
+display:
+  name: TikTok Shop
+  role: 货架 · 连着内容
+  image_label: 商品卡主图
+  image_summary: 商品卡主图偏白底、无加字；≠ 信息流广告封面
+notes: >-
+  已对照 source_url 摘录（excerpt_date 2026-08-25）复核标题阈值，维持 25–200 字符，未变更。
+rules:
+  - id: tiktok.title.min_length
+    kind: title_min_length
+    field: tiktok:title
+    severity: warn
+    params:
+      min: 25
+    description: 商品标题不少于 25 字符。
+  - id: tiktok.title.max_length
+    kind: title_max_length
+    field: tiktok:title
+    severity: warn
+    params:
+      max: 200
+    description: 商品标题不超过 200 字符。
+  - id: tiktok.main_image.clean
+    kind: text
+    field: tiktok:main_image
+    severity: warn
+    params: {}
+    description: 商品卡主图偏白底、无加字；信息流广告封面是另一套素材，走投放条。

@@ -646,3 +646,199 @@
   color: #26bbff;
   text-decoration: underline;
 }
+
+/* ---- 规则变更 / 迁移 面板 ---------------------------------------------- */
+.migrationDrawer aside {
+  width: min(760px, 100%);
+}
+
+.migSection {
+  margin: 14px 0;
+  padding-top: 12px;
+  border-top: 1px solid #352f25;
+}
+.migSection:first-of-type {
+  border-top: 0;
+}
+
+.migActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.migDiff {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: #e1ded8;
+
+  li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+  li[data-kind='changed'] {
+    border-left: 3px solid #ffc249;
+  }
+  li[data-kind='added'] {
+    border-left: 3px solid #ffc249;
+  }
+  li[data-kind='removed'] {
+    border-left: 3px solid #ff7649;
+  }
+  b {
+    color: #ffce7a;
+    margin-right: 4px;
+  }
+  code {
+    color: #9fd0ff;
+  }
+}
+
+.migList {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    margin-bottom: 6px;
+  }
+  li[data-tone='warn'] .migRow {
+    border-left: 3px solid #ffc249;
+  }
+  li[data-tone='ok'] .migRow {
+    border-left: 3px solid #4bbf87;
+    opacity: 0.82;
+  }
+}
+
+.migRow {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #e1ded8;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.07);
+  }
+}
+
+.migRowHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+
+  b {
+    color: #f4f1ea;
+  }
+  em {
+    font-style: normal;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.09);
+    color: #cfc9bd;
+  }
+  em[data-cause='policy'] {
+    background: rgba(38, 187, 255, 0.16);
+    color: #7fd2ff;
+  }
+  em[data-cause='both'] {
+    background: rgba(255, 194, 73, 0.18);
+    color: #ffce7a;
+  }
+}
+
+.migStale {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 194, 73, 0.2);
+  color: #ffce7a;
+}
+.migKeep {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(75, 191, 135, 0.18);
+  color: #7ee0b0;
+}
+
+.migReason {
+  font-size: 11.5px;
+  color: #b7b1a4;
+  line-height: 1.45;
+}
+
+.migPatches {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    border-left: 3px solid #4bbf87;
+  }
+  li[data-review='1'] {
+    border-left-color: #ff7649;
+    background: rgba(255, 118, 73, 0.08);
+  }
+}
+
+.migPatchHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #f4f1ea;
+  cursor: pointer;
+
+  code {
+    color: #9fd0ff;
+  }
+  em {
+    font-style: normal;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 999px;
+  }
+}
+
+.migPatchBody {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+  padding-left: 22px;
+  font-size: 12px;
+}
+.migPrev {
+  color: #b7b1a4;
+  text-decoration: line-through;
+}
+.migNext {
+  color: #7ee0b0;
+}
+.migReview {
+  background: rgba(255, 118, 73, 0.2);
+  color: #ff9c7a;
+}
+.migFail {
+  color: #ff9c7a;
+  font-size: 11.5px;
+}

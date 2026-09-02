@@ -1,9 +1,9 @@
 import { ApiError, apiUrl, toSafeMessage } from './apiClient';
 
 // Rules are fetched from the backend `/api/rules` (single source of truth,
-// backed by api/rules.yaml). The frontend keeps only a tiny built-in copy as a
-// last-resort fallback, and when the fallback is shown it is clearly labelled
-// as not-current.
+// assembled from the versioned policy snapshots in api/policy/snapshots/). The
+// frontend keeps only a tiny built-in copy as a last-resort fallback, and when
+// the fallback is shown it is clearly labelled as not-current.
 
 export type RuleRow = {
   platformId: string;

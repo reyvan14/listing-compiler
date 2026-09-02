@@ -10,15 +10,29 @@ export type CheckItem = {
   detail: string;
 };
 
+export type DraftField = {
+  label: string;
+  value: string;
+  /** stable field slug from the backend (bullet-1, search-terms, …) */
+  field?: string;
+  /** SKU fact IDs this field depends on */
+  factRefs?: string[];
+};
+
 export type PlatformDraft = {
   id: PlatformId;
   name: string;
   role: string;
   title: string;
-  fields: { label: string; value: string }[];
+  fields: DraftField[];
   imageLabel: string;
   imageUrl?: string;
   checks: CheckItem[];
+  /** dependency metadata for the self-healing migration workflow */
+  titleFactRefs?: string[];
+  policyVersion?: string;
+  skuRevision?: string;
+  factIds?: string[];
 };
 
 export const DEMO_SKU = {
@@ -50,7 +64,8 @@ export const EMPTY_HINT: Record<PlatformId, string[]> = {
   shopify: ['品牌标题', '长描述', '生活图（无强制白底）'],
 };
 
-// The rules table is served by the backend (/api/rules, from api/rules.yaml).
+// The rules table is served by the backend (/api/rules, assembled from the
+// versioned policy snapshots in api/policy/snapshots/).
 // A minimal offline fallback lives in station/rulesApi.ts and is shown only
 // when that endpoint is unreachable, clearly marked as not-current.
 
