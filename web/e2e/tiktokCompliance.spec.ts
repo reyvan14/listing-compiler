@@ -58,7 +58,28 @@ async function generateWithTitle(page: Page, title: string) {
 
 async function generateWithFailedTitle(page: Page) {
   await generateWithTitle(page, FAILED_TITLE);
-  await page.waitForSelector('[data-testid="blocking-gate"]', { timeout: 25_000 });
+  // Cards start compact: blocking shows as a one-line badge, not the full gate.
+  await page.waitForSelector('[data-testid="blocking-badge"]', { timeout: 25_000 });
+}
+
+/** Open the TikTok card's detail view, where the per-rule explanations live. */
+async function expandTiktok(page: Page) {
+  await page.evaluate(() => {
+    const editor = (window as unknown as { editor: any }).editor;
+    const shape = editor
+      .getCurrentPageShapes()
+      .find((s: any) => s.props?.node?.platform === 'tiktok' && s.props?.node?.type === 'listing_result');
+    const b = editor.getShapePageBounds(shape.id);
+    const vsb = editor.getViewportScreenBounds();
+    const z = editor.getCamera().z;
+    editor.setCamera(
+      { x: (vsb.w - 372) / 2 / z - (b.x + b.w / 2), y: 90 / z - b.y, z },
+      { immediate: true },
+    );
+  });
+  await page.waitForTimeout(250);
+  await tiktokCard(page).getByTestId('toggle-details').click();
+  await page.waitForTimeout(300);
 }
 
 /** The TikTok *result* card, by platform.
@@ -77,11 +98,18 @@ test('TikTok emoji + hashtag + clickbait title is blocked, not silently accepted
   await waitForStation(page);
   await generateWithFailedTitle(page);
 
+  // compact mode keeps blocking visible as a concise red banner
+  const badge = page.locator('[data-testid="blocking-badge"]');
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText('阻断违规');
+  await expect(badge).toContainText('需人工复核');
+  await expect(badge).not.toContainText('已发布');
+
+  // and the full gate is one expand away
+  await expandTiktok(page);
   const gate = page.locator('[data-testid="blocking-gate"]');
   await expect(gate).toBeVisible();
-  await expect(gate).toContainText('阻断违规');
   await expect(gate).toContainText('已保留待人工复核');
-  // truthful status language — never "published"
   await expect(gate).not.toContainText('已发布');
 
   await page.screenshot({ path: `${SHOTS}/${tag(testInfo)}-tiktok-01-blocked.png` });
@@ -93,6 +121,7 @@ test('each violation is shown with its own explanation and suggested correction'
   await waitForStation(page);
   await generateWithFailedTitle(page);
 
+  await expandTiktok(page);
   const card = tiktokCard(page);
   await expect(card).toBeVisible();
 
@@ -125,6 +154,7 @@ test('the suggested replacement title is clean and leads with the product', asyn
   await waitForStation(page);
   await generateWithFailedTitle(page);
 
+  await expandTiktok(page);
   const suggested = page.locator('[data-testid="suggested-title"]');
   await expect(suggested).toBeVisible();
   const text = (await suggested.textContent()) ?? '';
@@ -159,6 +189,7 @@ test('a compliant TikTok title produces no blocking gate', async ({ page }, test
   await page.waitForSelector('.NodeShape_station:has-text("TikTok Shop")', { timeout: 25_000 });
   await page.waitForTimeout(500);
 
+  await expect(page.locator('[data-testid="blocking-badge"]')).toHaveCount(0);
   await expect(page.locator('[data-testid="blocking-gate"]')).toHaveCount(0);
   await expect(page.locator('[data-testid="suggested-title"]')).toHaveCount(0);
   await page.screenshot({ path: `${SHOTS}/${tag(testInfo)}-tiktok-02-clean.png` });

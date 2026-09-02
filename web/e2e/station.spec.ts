@@ -56,7 +56,7 @@ test('P0.6 empty Generate does NOT insert demo data and shows validation', async
   await expect(name).toHaveValue(''); // not mutated
   await expect(page.getByText('请填写品名')).toBeVisible();
   await expect(name).toBeFocused();
-  await expect(page.locator('.NodeShape_station', { has: page.getByRole('button', { name: '复制标题' }) })).toHaveCount(0);
+  await expect(page.locator('[data-testid="listing-result"]')).toHaveCount(0);
 });
 
 test('P0.6 only 填入演示 inserts demo content', async ({ page }) => {
@@ -167,7 +167,7 @@ test('P0.1 Cancel during a delayed listing request produces no results and no ba
 
   expect(listingAborted).toBe(true); // the HTTP request was actually aborted
   await expect(page.locator('#station-generate')).toHaveText('生成'); // back to idle
-  await expect(page.locator('.NodeShape_station', { has: page.getByRole('button', { name: '复制标题' }) })).toHaveCount(0);
+  await expect(page.locator('[data-testid="listing-result"]')).toHaveCount(0);
   await expect(page.getByText('模型生成 · Token Plan')).toHaveCount(0);
   await expect(page.getByText('后端规则兜底')).toHaveCount(0);
   await expect(page.locator('#station-local-sample-banner')).toHaveCount(0);
@@ -204,9 +204,9 @@ test('P1.11 immediately after generation every result card is outside the Agent 
   const vw = testInfo.project.use.viewport!.width;
   const agentLeft = await agentLeftEdge(page, vw);
 
-  const cards = page.locator('.NodeShape_station', {
-    has: page.getByRole('button', { name: '复制标题' }),
-  });
+  // Cards are compact summaries now; identify them by their stable testid
+  // (the copy button moved into the expanded detail view).
+  const cards = page.locator('[data-testid="listing-result"]');
   const count = await cards.count();
   expect(count).toBe(3);
 
@@ -290,9 +290,12 @@ test('P2.17 copy button shows success feedback', async ({ page }) => {
   await page.click('#station-fill');
   await page.click('#station-generate');
   await expect(page.getByText('模型生成 · Token Plan')).toBeVisible({ timeout: 15_000 });
-  const copyBtn = page.getByRole('button', { name: '复制标题' }).first();
+  // Cards start as compact summaries; copying lives in the detail view.
+  const amazon = page.locator('[data-testid="listing-result"][data-platform="amazon"]');
+  await amazon.getByTestId('toggle-details').click();
+  const copyBtn = amazon.getByRole('button', { name: '复制标题' });
   await copyBtn.click();
-  await expect(page.getByRole('button', { name: '已复制标题' }).first()).toBeVisible();
+  await expect(amazon.getByRole('button', { name: '已复制标题' })).toBeVisible();
 });
 
 // --------------------------------------------------------------------------- //

@@ -510,3 +510,105 @@
   color: #7ee0b0;
   word-break: break-word;
 }
+
+/* ---- 紧凑摘要卡（默认态）------------------------------------------------
+   高度预算与 skuStation.ts 的 COMPACT_ROWS 一一对应，改一处要改两处。 */
+.compactCard {
+  .art {
+    margin-bottom: 8px;
+    img {
+      height: 64px;
+    }
+  }
+
+  .titleBlock {
+    margin-bottom: 4px;
+
+    p {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2; /* 标题固定夹到 2 行 */
+      line-clamp: 2;
+      overflow: hidden;
+      font-size: 13px;
+      line-height: 17px;
+      max-height: 34px;
+    }
+  }
+
+  /* 紧凑态字段：一行 "标签 值"，值夹到 1 行 */
+  .fields > div {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    margin-bottom: 0;
+    height: 18px;
+    overflow: hidden;
+
+    dt {
+      flex: 0 0 auto;
+      max-width: 92px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    dd {
+      flex: 1 1 auto;
+      margin: 0;
+      -webkit-line-clamp: 1;
+      line-clamp: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 12px;
+      line-height: 18px;
+    }
+  }
+}
+
+.checkSummary {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 20px;
+  color: #a8a49b;
+}
+
+/* 紧凑态的阻断提示：一行红条，详情在展开态 */
+.blockBadge {
+  margin: 6px 0 0;
+  padding: 5px 8px;
+  border-radius: 5px;
+  border-left: 3px solid #ff7649;
+  background: rgba(255, 118, 73, 0.14);
+  color: #ff9c7a;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 卡片头行：角色 / 状态 + 详情开关（钉在右上，随卡片高度不变） */
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 26px;
+
+  .role {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  button {
+    flex: 0 0 auto;
+    font-size: 11.5px;
+    padding: 2px 9px;
+    height: 22px;
+  }
+}

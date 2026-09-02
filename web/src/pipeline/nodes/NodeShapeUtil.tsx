@@ -30,6 +30,7 @@ import { executionState, startExecution, stopExecution } from '../execution/exec
 import { guardRequiredInputs } from '../execution/requiredInputs';
 import { Port } from '../ports/Port';
 import { nodeShapeMigrations } from './nodeShapeMigrations';
+import { toggleResultExpanded } from './types/skuStation';
 import { getNodeOutputPortInfo, getNodePorts } from './nodePorts';
 import {
   getNodeDefinition,
@@ -84,6 +85,19 @@ export class NodeShapeUtil extends ShapeUtil<NodeShape> {
 
   override canEdit(_shape: NodeShape) {
     return false;
+  }
+  /**
+   * Double-click a listing result to toggle its detail view.
+   *
+   * This lives on the shape util rather than on the card's DOM: the card body
+   * has pointer-events disabled so the node stays draggable, so a DOM dblclick
+   * never reaches it. tldraw hit-tests the canvas and routes here instead.
+   */
+  override onDoubleClick(shape: NodeShape) {
+    const node = shape.props.node;
+    if (node.type !== 'listing_result' || node.platform === 'ad') return;
+    toggleResultExpanded(this.editor, shape.id);
+    return;
   }
   override canResize(shape: NodeShape) {
     return getNodeDefinition(this.editor, shape.props.node).canResizeNode;

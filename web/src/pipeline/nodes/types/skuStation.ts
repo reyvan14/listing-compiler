@@ -81,6 +81,9 @@ export type ListingResultNode = {
   script: string[]
   note: string
   suggestedTitle: string
+  /** Compact summary card by default; only one result may be expanded at a time
+   * (enforced by expandResult / collapseResults). */
+  expanded: boolean
   // self-healing Listing CI/CD dependency metadata (see ListingResultNode.tsx)
   artifactId: string
   policyVersion: string
@@ -337,8 +340,62 @@ export function worstCheckItem(checks: CheckItem[]): CheckItem | undefined {
   return checks.find(c => c.state === 'ad-only') ?? checks.find(c => c.state === 'fix') ?? checks[0]
 }
 
+// --------------------------------------------------------------------------- //
+// Compact summary card                                                         //
+//                                                                              //
+// Every platform result starts as a fixed-size summary so the three cards line //
+// up and the canvas stays readable. The budget below is the contract with      //
+// skuStation.module.scss (.compactCard) — change both together.                //
+// --------------------------------------------------------------------------- //
+
+/** Rows of the compact card, in px. Sums to COMPACT_BODY_HEIGHT_PX.
+ *
+ * Deliberately lean: the compact card shows only what requirement 1 lists, so
+ * three of them stack inside a 900px-tall viewport without the auto-frame
+ * having to zoom below the readability floor. The copy-title button lives in
+ * expanded mode. */
+const COMPACT_ROWS = {
+  head: 26, // platform role / status + the 查看详情 toggle, on one row
+  art: 72, // product image (64px) + margin
+  title: 46, // "标题" label + 2 clamped lines
+  fields: 54, // up to 3 key fields, one clamped line each
+  summary: 20, // "3 通过 / 1 需改"
+  pad: 8,
+} as const
+
+export const COMPACT_BODY_HEIGHT_PX = Object.values(COMPACT_ROWS).reduce((a, b) => a + b, 0)
+
+/** One extra fixed row when the card carries blocking violations. Blocking
+ * status is never hidden, so this row exists in compact mode too. */
+export const COMPACT_BLOCKING_ROW_PX = 34
+
+/** How many key fields a compact card shows. */
+export const COMPACT_FIELD_LIMIT = 3
+
+export function isResultExpanded(node: ListingResultNode): boolean {
+  return node.platform !== 'ad' && node.expanded === true
+}
+
+export function blockingChecks(node: ListingResultNode): StoredCheckItem[] {
+  return node.checks.filter(c => c.blocking)
+}
+
+/** "3 通过 / 1 需改" — the compact validation summary. */
+export function checkSummaryText(checks: CheckItem[]): string {
+  const pass = checks.filter(c => c.state === 'pass').length
+  const fix = checks.filter(c => c.state === 'fix').length
+  const adOnly = checks.filter(c => c.state === 'ad-only').length
+  const parts = [`${pass} 通过`, `${fix} 需改`]
+  if (adOnly) parts.push(`${adOnly} 只能去投放`)
+  return parts.join(' / ')
+}
+
 export function resultBodyHeightPx(node: ListingResultNode): number {
   if (node.platform === 'ad') return 268
+  if (!isResultExpanded(node)) {
+    // Fixed height so Amazon / TikTok Shop / Shopify cards are identical.
+    return COMPACT_BODY_HEIGHT_PX + (blockingChecks(node).length ? COMPACT_BLOCKING_ROW_PX : 0)
+  }
   const migrationBanner =
     node.migrationStatus && node.migrationStatus !== 'current' ? (node.staleReason ? 44 : 26) : 0
   const inner = RESULT_NODE_WIDTH - STATION_INNER_PAD
@@ -370,8 +427,112 @@ export function resultBodyHeightPx(node: ListingResultNode): number {
         : 0)
     : 0
   return (
-    migrationBanner + 28 + reasonH + 118 + 16 + titleLines * 20 + 10 + fieldsH + gateH + checksH + 32
+    migrationBanner +
+    28 +
+    reasonH +
+    118 +
+    16 +
+    titleLines * 20 +
+    10 +
+    fieldsH +
+    gateH +
+    checksH +
+    32
   )
+}
+
+/** Vertical gap between stacked result cards. */
+export const RESULT_STACK_GAP = 24
+
+/**
+ * Stack `ids` vertically at `x`, vertically centred on the SKU node.
+ *
+ * Positions are assigned after creation so real measured heights are used. The
+ * cards keep their bindings — a connection follows its port, not a coordinate —
+ * so moving a card here cannot break the fan-out.
+ */
+export function layoutResultStack(
+  editor: Editor,
+  skuShape: NodeShape,
+  ids: string[],
+  x: number,
+): void {
+  const shapes = ids
+    .map(id => editor.getShape(id as TLShapeId))
+    .filter((s): s is NodeShape => !!s && editor.isShapeOfType(s, 'node'))
+  if (shapes.length === 0) return
+
+  const heights = shapes.map(s => editor.getShapePageBounds(s.id)?.h ?? 0)
+  const total = heights.reduce((a, b) => a + b, 0) + RESULT_STACK_GAP * (shapes.length - 1)
+
+  const skuBounds = editor.getShapePageBounds(skuShape.id)
+  const skuCentreY = skuBounds ? skuBounds.y + skuBounds.h / 2 : STATION_ORIGIN.y
+  // Never start above the station origin: a tall stack should grow downward
+  // rather than push the group off the top of the page.
+  const startY = Math.max(STATION_ORIGIN.y, skuCentreY - total / 2)
+
+  let y = startY
+  shapes.forEach((shape, i) => {
+    editor.updateShape({ id: shape.id, type: shape.type, x, y })
+    y += heights[i] + RESULT_STACK_GAP
+  })
+}
+
+/** All listing_result shapes, ad card excluded. */
+function platformResultShapes(editor: Editor): NodeShape[] {
+  return editor.getCurrentPageShapes().filter((s): s is NodeShape => {
+    if (!editor.isShapeOfType(s, 'node')) return false
+    const n = (s as NodeShape).props.node
+    return n.type === 'listing_result' && n.platform !== 'ad'
+  })
+}
+
+/**
+ * Expand exactly one result card and collapse every other one.
+ *
+ * Single-expansion is enforced here rather than trusted to callers. The card's
+ * input port sits at a fixed y (NODE_HEADER_HEIGHT_PX / 2), so growing the body
+ * never moves the port and connections stay aligned. Nothing here touches the
+ * camera.
+ */
+export function expandResult(editor: Editor, shapeId: string) {
+  editor.run(() => {
+    for (const shape of platformResultShapes(editor)) {
+      const want = shape.id === shapeId
+      const node = shape.props.node as ListingResultNode
+      if (node.expanded === want) continue
+      updateNode<ListingResultNode>(editor, shape, n => ({ ...n, expanded: want }), false)
+    }
+  })
+}
+
+/** Collapse every result card back to the compact summary. */
+export function collapseResults(editor: Editor) {
+  editor.run(() => {
+    for (const shape of platformResultShapes(editor)) {
+      const node = shape.props.node as ListingResultNode
+      if (!node.expanded) continue
+      updateNode<ListingResultNode>(editor, shape, n => ({ ...n, expanded: false }), false)
+    }
+  })
+}
+
+/** Toggle one card; expanding collapses the others. */
+export function toggleResultExpanded(editor: Editor, shapeId: string) {
+  const shape = editor.getShape(shapeId as TLShapeId)
+  const node =
+    shape && editor.isShapeOfType(shape, 'node')
+      ? ((shape as NodeShape).props.node as ListingResultNode)
+      : undefined
+  if (node?.expanded) collapseResults(editor)
+  else expandResult(editor, shapeId)
+}
+
+export function expandedResultId(editor: Editor): string | null {
+  const hit = platformResultShapes(editor).find(
+    s => (s.props.node as ListingResultNode).expanded,
+  )
+  return hit ? hit.id : null
 }
 
 export function resultImageUrl(platform: ListingResultNode['platform'], mode: AssetMode): string {
@@ -414,6 +575,7 @@ function draftToResult(draft: PlatformDraft, mode: AssetMode): ListingResultNode
     script: [],
     note: '',
     suggestedTitle: draft.suggestedTitle ?? '',
+    expanded: false,
     artifactId: draft.id,
     policyVersion: draft.policyVersion ?? '',
     factRefs: draft.titleFactRefs ?? [],
@@ -450,6 +612,7 @@ function adResult(mode: AssetMode): ListingResultNode {
     script: AD_CUT.script,
     note: AD_CUT.note,
     suggestedTitle: '',
+    expanded: false,
     artifactId: 'ad',
     policyVersion: '',
     factRefs: [],
@@ -498,11 +661,10 @@ export function spawnPlatformResults(editor: Editor, source: NodeShape, drafts?:
     const ids: string[] = []
     const resolved = (drafts ?? buildDrafts(node.assetMode)).filter(d => platforms.includes(d.id))
 
-    // Horizontal platform lanes: one row, cards side by side. Keeps each card at
-    // a readable width and lets the auto-frame fit width instead of stacking
-    // three tall cards and fitting the whole height.
-    const laneGap = 28
-    let x = startX
+    // Vertical fan-out: the SKU compiler stays on the left and the platform
+    // cards stack on the right, all sharing one X. Compact cards have a fixed
+    // height, so the stack is short enough to read without zooming out — a
+    // single wide row forced the auto-frame to shrink everything.
     for (const draft of resolved) {
       const id = spawnConnectedNode({
         editor,
@@ -510,16 +672,11 @@ export function spawnPlatformResults(editor: Editor, source: NodeShape, drafts?:
         sourcePortId: `output_${draft.id}`,
         dataType: 'text',
         nodeProps: draftToResult(draft, node.assetMode),
-        inputPortTarget: { x, y: STATION_ORIGIN.y + 20 },
+        inputPortTarget: { x: startX, y: STATION_ORIGIN.y + 20 },
       })
       ids.push(id)
-      const spawned = editor.getShape(id as TLShapeId)
-      const width =
-        spawned && editor.isShapeOfType(spawned, 'node')
-          ? getNodeWidthPx(editor, spawned)
-          : RESULT_NODE_WIDTH
-      x += width + laneGap
     }
+    layoutResultStack(editor, live, ids, startX)
 
     updateNode<SkuListingNode>(
       editor,
@@ -534,7 +691,10 @@ export function spawnPlatformResults(editor: Editor, source: NodeShape, drafts?:
   })
 
   editor.selectNone()
-  requestAnimationFrame(() => focusAllResults(editor))
+  // Frame the whole station (SKU on the left + the result stack on the right).
+  // Framing the results alone used to push the SKU off-screen and, with a wide
+  // row of cards, zoomed far enough out that the copy stopped being readable.
+  requestAnimationFrame(() => frameStation(editor))
 }
 
 export function applyPromoConflict(editor: Editor, source: NodeShape) {

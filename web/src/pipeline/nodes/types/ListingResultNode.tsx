@@ -1,11 +1,17 @@
 import { useState } from 'react'
-import { T } from 'tldraw'
+import { T, useEditor } from 'tldraw'
 import { NODE_HEADER_HEIGHT_PX } from '../../constants'
 import { Port, ShapePort } from '../../ports/Port'
 import { NodeShape } from '../NodeShapeUtil'
 import {
   AD_NODE_WIDTH,
+  blockingChecks,
+  checkSummaryText,
+  COMPACT_FIELD_LIMIT,
+  collapseResults,
   downloadAdCut,
+  expandResult,
+  isResultExpanded,
   RESULT_NODE_WIDTH,
   resultBodyHeightPx,
   STAMP,
@@ -46,6 +52,9 @@ export const ListingResultNode = T.object({
   note: T.string,
   /** Deterministic suggested replacement title, when one can be derived. */
   suggestedTitle: T.string,
+  /** false = compact summary card (the default); true = full detail. Only one
+   * result card may be expanded at a time — see expandResult(). */
+  expanded: T.boolean,
   // ---- self-healing Listing CI/CD dependency metadata --------------------
   // Stable artifact id (= platform for a listing card), the policy version this
   // card was compiled against, the SKU fact IDs the title depends on, and a
@@ -98,6 +107,7 @@ export class ListingResultNodeDefinition extends NodeDefinition<ListingResultNod
       script: [],
       note: '',
       suggestedTitle: '',
+      expanded: false,
       artifactId: '',
       policyVersion: '',
       factRefs: [],
@@ -149,6 +159,8 @@ function keepOnControl(e: { stopPropagation: () => void }) {
 }
 
 function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingResultNode>) {
+  const editor = useEditor()
+  const expanded = isResultExpanded(node)
   const stamp = node.checks.length ? worstCheck(node.checks) : null
   const worst = worstCheckItem(node.checks)
   const hold =
@@ -169,7 +181,7 @@ function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingR
   const copyLabel =
     copied === 'ok' ? '已复制标题' : copied === 'err' ? '复制失败，请手动选择' : '复制标题'
 
-  const blocking = node.checks.filter(c => c.blocking)
+  const blocking = blockingChecks(node)
   const migration =
     node.migrationStatus && node.migrationStatus !== 'current' ? node.migrationStatus : ''
   const MIGRATION_LABEL: Record<string, string> = {
@@ -180,8 +192,21 @@ function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingR
     'needs-human-review': '需人工复核',
   }
 
+  const toggleExpanded = () => {
+    if (expanded) collapseResults(editor)
+    else expandResult(editor, shape.id)
+  }
+
   return (
-    <div className={styles.body} data-platform={node.platform} data-testid="listing-result">
+    <div
+      className={`${styles.body} ${expanded ? styles.expandedCard : styles.compactCard}`}
+      data-platform={node.platform}
+      data-testid="listing-result"
+      data-expanded={expanded ? '1' : '0'}
+      // Double-click-to-expand is handled by NodeShapeUtil.onDoubleClick: the
+      // card body has pointer-events disabled so the node stays draggable, so a
+      // DOM handler here would never fire.
+    >
       <Port shapeId={shape.id} portId="input" />
       {migration && (
         <div className={styles.migBanner} data-status={migration} role="status">
@@ -189,9 +214,26 @@ function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingR
           {node.staleReason ? <small>{node.staleReason}</small> : null}
         </div>
       )}
-      <p className={styles.role}>{node.role}</p>
+      {/* Header row: role + status on the left, the detail toggle pinned right.
+          Keeping the toggle at the top means it stays reachable no matter how
+          tall the expanded card grows. */}
+      <div className={styles.cardHead}>
+        <p className={styles.role}>{node.role}</p>
+        {node.platform !== 'ad' && (
+          <button
+            type="button"
+            className={styles.btnGhost}
+            data-testid="toggle-details"
+            aria-expanded={expanded}
+            onPointerDown={keepOnControl}
+            onClick={toggleExpanded}
+          >
+            {expanded ? '收起详情' : '查看详情'}
+          </button>
+        )}
+      </div>
       {stamp && <b className={`${styles.stamp} ${styles[stamp]}`}>{STAMP[stamp]}</b>}
-      {worst && worst.state !== 'pass' && worst.detail && (
+      {expanded && worst && worst.state !== 'pass' && worst.detail && (
         <p className={styles.reason}>{worst.detail}</p>
       )}
 
@@ -231,55 +273,78 @@ function ListingResultNodeComponent({ shape, node }: NodeComponentProps<ListingR
           <div className={styles.titleBlock}>
             <small>标题</small>
             <p>{node.title}</p>
-            <button
-              type="button"
-              data-copied={copied ?? undefined}
-              aria-live="polite"
-              onPointerDown={keepOnControl}
-              onClick={copyTitle}
-            >
-              {copyLabel}
-            </button>
+            {/* Copying belongs to the detail view: the compact card shows only
+                the summary content listed in the layout spec. */}
+            {expanded && (
+              <button
+                type="button"
+                data-copied={copied ?? undefined}
+                aria-live="polite"
+                onPointerDown={keepOnControl}
+                onClick={copyTitle}
+              >
+                {copyLabel}
+              </button>
+            )}
           </div>
           <dl className={styles.fields}>
-            {node.fields.slice(0, 3).map(f => (
+            {(expanded ? node.fields : node.fields.slice(0, COMPACT_FIELD_LIMIT)).map(f => (
               <div key={f.label}>
                 <dt>{f.label}</dt>
                 <dd>{f.value}</dd>
               </div>
             ))}
           </dl>
-          {blocking.length > 0 && (
-            <div className={styles.blockGate} role="alert" data-testid="blocking-gate">
-              <b>
-                {blocking.length} 项阻断违规 · 已保留待人工复核
-              </b>
-              <small>未通过平台硬性规则，不会自动上架，也不会被静默沿用。</small>
-              {node.suggestedTitle && (
-                <span className={styles.suggestTitle} data-testid="suggested-title">
-                  建议标题：{node.suggestedTitle}
-                </span>
-              )}
-            </div>
-          )}
-          <ul className={styles.checks}>
-            {node.checks.map(c => (
-              <li key={c.id} data-blocking={c.blocking ? '1' : undefined}>
-                <b className={styles[c.state]}>{STAMP[c.state]}</b>
-                <span>
-                  {c.label}
-                  {c.blocking ? <i className={styles.blockTag}>阻断</i> : null}
-                  {c.detail ? <small>{c.detail}</small> : null}
-                  {c.evidence && c.evidence.length > 0 ? (
-                    <small className={styles.evidence}>问题片段：{c.evidence.join(' ')}</small>
-                  ) : null}
-                  {c.suggestion ? (
-                    <small className={styles.suggestion}>改法：{c.suggestion}</small>
-                  ) : null}
-                </span>
-              </li>
+
+          {/* Blocking status is never hidden: compact mode shows a one-line red
+              banner, expanded mode shows the full gate with the suggested title. */}
+          {blocking.length > 0 &&
+            (expanded ? (
+              <div className={styles.blockGate} role="alert" data-testid="blocking-gate">
+                <b>{blocking.length} 项阻断违规 · 已保留待人工复核</b>
+                <small>未通过平台硬性规则，不会自动上架，也不会被静默沿用。</small>
+                {node.suggestedTitle && (
+                  <span className={styles.suggestTitle} data-testid="suggested-title">
+                    建议标题：{node.suggestedTitle}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <p
+                className={styles.blockBadge}
+                role="alert"
+                data-testid="blocking-badge"
+                title="展开查看每条违规的说明与改法"
+              >
+                {blocking.length} 项阻断违规 · 需人工复核
+              </p>
             ))}
-          </ul>
+
+          {expanded ? (
+            <ul className={styles.checks}>
+              {node.checks.map(c => (
+                <li key={c.id} data-blocking={c.blocking ? '1' : undefined}>
+                  <b className={styles[c.state]}>{STAMP[c.state]}</b>
+                  <span>
+                    {c.label}
+                    {c.blocking ? <i className={styles.blockTag}>阻断</i> : null}
+                    {c.detail ? <small>{c.detail}</small> : null}
+                    {c.evidence && c.evidence.length > 0 ? (
+                      <small className={styles.evidence}>问题片段：{c.evidence.join(' ')}</small>
+                    ) : null}
+                    {c.suggestion ? (
+                      <small className={styles.suggestion}>改法：{c.suggestion}</small>
+                    ) : null}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className={styles.checkSummary} data-testid="check-summary">
+              {checkSummaryText(node.checks)}
+            </p>
+          )}
+
         </>
       )}
     </div>

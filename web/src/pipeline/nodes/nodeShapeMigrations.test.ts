@@ -80,3 +80,16 @@ describe('listing_result compliance backfill', () => {
     expect(twice.suggestedTitle).toBe('AeroFold Travel Cup 350ml')
   })
 })
+
+describe('listing_result compact-card backfill', () => {
+  it('loads an old result card in the collapsed state', () => {
+    const node = backfillNodeProps({ type: 'listing_result', platform: 'amazon', checks: [] })
+    expect(node.expanded).toBe(false)
+  })
+
+  it('is idempotent and keeps an explicit expanded flag', () => {
+    const once = backfillNodeProps({ type: 'listing_result', platform: 'amazon', expanded: true, checks: [] })
+    const twice = backfillNodeProps({ ...once })
+    expect(twice.expanded).toBe(true)
+  })
+})
