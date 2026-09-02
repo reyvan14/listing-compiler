@@ -458,3 +458,183 @@ test('compact cards do not overflow their own box, Agent open or collapsed', asy
     expect(row.dy).toBeLessThanOrEqual(1);
   }
 });
+
+// --------------------------------------------------------------------------- //
+// Stack reflow: an expanded card must push the ones below it down             //
+// --------------------------------------------------------------------------- //
+
+const STACK_GAP = 24;
+
+/** Fails with a readable message if any two cards overlap vertically. */
+function expectNoOverlap(cards: CardGeom[], when: string) {
+  for (let i = 1; i < cards.length; i++) {
+    const above = cards[i - 1];
+    const below = cards[i];
+    expect(
+      Math.round(below.y),
+      `${when}: ${below.platform} (top ${Math.round(below.y)}) overlaps ` +
+        `${above.platform} (bottom ${Math.round(above.y + above.h)})`,
+    ).toBeGreaterThanOrEqual(Math.round(above.y + above.h));
+  }
+}
+
+/** Every consecutive pair sits exactly STACK_GAP apart, at one shared X. */
+function expectTidyStack(cards: CardGeom[], when: string) {
+  expectNoOverlap(cards, when);
+  const xs = new Set(cards.map(c => Math.round(c.x)));
+  expect([...xs], `${when}: cards must share one X`).toHaveLength(1);
+  for (let i = 1; i < cards.length; i++) {
+    const gap = cards[i].y - (cards[i - 1].y + cards[i - 1].h);
+    expect(Math.round(gap), `${when}: gap above ${cards[i].platform}`).toBe(STACK_GAP);
+  }
+}
+
+async function expand(page: Page, platform: string) {
+  await bringIntoView(page, platform);
+  await card(page, platform).getByTestId('toggle-details').click();
+  await page.waitForTimeout(350);
+}
+
+test('expanding any card reflows the stack with no overlap and a constant gap', async ({
+  page,
+}, testInfo) => {
+  await waitForStation(page);
+  await generate(page);
+
+  const compact = await cardGeometry(page);
+  expectTidyStack(compact, 'compact');
+  const order = compact.map(c => c.platform);
+
+  for (const platform of order) {
+    await expand(page, platform);
+    const cards = await cardGeometry(page);
+
+    expectTidyStack(cards, `after expanding ${platform}`);
+    // exactly one card is expanded, and it is the one we clicked
+    expect(cards.filter(c => c.expanded).map(c => c.platform)).toEqual([platform]);
+    // the stack keeps its order and its top anchor
+    expect(cards.map(c => c.platform)).toEqual(order);
+    expect(Math.round(cards[0].y)).toBe(Math.round(compact[0].y));
+
+    // every card below the expanded one moved strictly downward
+    const idx = cards.findIndex(c => c.platform === platform);
+    for (let i = idx + 1; i < cards.length; i++) {
+      expect(
+        cards[i].y,
+        `${cards[i].platform} should be pushed below the expanded ${platform}`,
+      ).toBeGreaterThan(compact[i].y);
+    }
+    // and the ones above it did not move at all
+    for (let i = 0; i < idx; i++) {
+      expect(Math.round(cards[i].y)).toBe(Math.round(compact[i].y));
+    }
+
+    await page.screenshot({
+      path: `${SHOTS}/${tag(testInfo)}-layout-04-expanded-${platform}.png`,
+    });
+
+    // collapse again before the next platform
+    await bringIntoView(page, platform);
+    await card(page, platform).getByTestId('toggle-details').click();
+    await page.waitForTimeout(350);
+  }
+});
+
+test('switching the expanded card restacks immediately with no overlap', async ({ page }) => {
+  await waitForStation(page);
+  await generate(page);
+  const compact = await cardGeometry(page);
+  const order = compact.map(c => c.platform);
+
+  // expand the first, then switch straight to the last without collapsing
+  await expand(page, order[0]);
+  expectTidyStack(await cardGeometry(page), `expanded ${order[0]}`);
+
+  await expand(page, order[2]);
+  const after = await cardGeometry(page);
+  expectTidyStack(after, `switched to ${order[2]}`);
+  expect(after.filter(c => c.expanded).map(c => c.platform)).toEqual([order[2]]);
+  // the previously expanded card is back to its compact height and position
+  expect(Math.round(after[0].h)).toBe(Math.round(compact[0].h));
+  expect(Math.round(after[0].y)).toBe(Math.round(compact[0].y));
+
+  // and switching back the other way is just as tidy
+  await expand(page, order[1]);
+  const back = await cardGeometry(page);
+  expectTidyStack(back, `switched to ${order[1]}`);
+  expect(back.filter(c => c.expanded).map(c => c.platform)).toEqual([order[1]]);
+});
+
+test('collapsing restores every original X, Y, W and H', async ({ page }) => {
+  await waitForStation(page);
+  await generate(page);
+  const before = await cardGeometry(page);
+  const snap = (cs: CardGeom[]) =>
+    cs.map(c => ({
+      p: c.platform,
+      x: Math.round(c.x),
+      y: Math.round(c.y),
+      w: Math.round(c.w),
+      h: Math.round(c.h),
+    }));
+
+  // expand each in turn, collapsing back each time
+  for (const platform of before.map(c => c.platform)) {
+    await expand(page, platform);
+    await bringIntoView(page, platform);
+    await card(page, platform).getByTestId('toggle-details').click();
+    await page.waitForTimeout(350);
+    expect(snap(await cardGeometry(page)), `after collapsing ${platform}`).toEqual(snap(before));
+  }
+});
+
+test('reflow never moves the camera and keeps connections bound and aligned', async ({ page }) => {
+  await waitForStation(page);
+  await generate(page);
+  await bringIntoView(page, 'amazon');
+  const cameraBefore = await camera(page);
+
+  /** For each card: its input-port page point and the connection end bound to it. */
+  const endpoints = () =>
+    page.evaluate(() => {
+      const editor = (window as unknown as { editor: any }).editor;
+      return editor
+        .getCurrentPageShapes()
+        .filter(
+          (s: any) =>
+            s.props?.node?.type === 'listing_result' && s.props.node.platform !== 'ad',
+        )
+        .map((s: any) => {
+          const b = editor.getShapePageBounds(s.id);
+          const bindings = editor.getBindingsToShape(s.id, 'connection');
+          const inputBinding = bindings.find((x: any) => x.props?.portId === 'input');
+          return {
+            platform: s.props.node.platform,
+            // the input port is fixed at NODE_HEADER_HEIGHT_PX / 2 below the top
+            portX: b.x,
+            portY: b.y + 20,
+            bound: !!inputBinding,
+          };
+        })
+        .sort((a: any, b: any) => a.portY - b.portY);
+    });
+
+  for (const platform of ['amazon', 'tiktok', 'shopify']) {
+    await expand(page, platform);
+
+    // camera untouched by the reflow (bringIntoView pans, so re-anchor per step)
+    const camNow = await camera(page);
+    await card(page, platform).getByTestId('toggle-details').click();
+    await page.waitForTimeout(350);
+    expect(await camera(page), `collapse of ${platform} moved the camera`).toEqual(camNow);
+
+    // every card still has a bound input connection sitting on its port
+    for (const e of await endpoints()) {
+      expect(e.bound, `${e.platform} lost its connection binding`).toBe(true);
+    }
+  }
+
+  // the very first anchor is unchanged too, once we pan back
+  await bringIntoView(page, 'amazon');
+  expect(await camera(page)).toEqual(cameraBefore);
+});

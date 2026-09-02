@@ -471,11 +471,18 @@ export function layoutResultStack(
   // rather than push the group off the top of the page.
   const startY = Math.max(STATION_ORIGIN.y, skuCentreY - total / 2)
 
+  placeStack(editor, shapes, x, startY)
+}
+
+/** Lay `shapes` out top-to-bottom at `x`, starting at `startY`, RESULT_STACK_GAP apart. */
+function placeStack(editor: Editor, shapes: NodeShape[], x: number, startY: number): void {
   let y = startY
-  shapes.forEach((shape, i) => {
+  for (const shape of shapes) {
     editor.updateShape({ id: shape.id, type: shape.type, x, y })
-    y += heights[i] + RESULT_STACK_GAP
-  })
+    // Height is read *after* the move so it reflects the shape's current props
+    // (an expanded card is taller than the compact one it replaced).
+    y += (editor.getShapePageBounds(shape.id)?.h ?? 0) + RESULT_STACK_GAP
+  }
 }
 
 /** All listing_result shapes, ad card excluded. */
@@ -485,6 +492,41 @@ function platformResultShapes(editor: Editor): NodeShape[] {
     const n = (s as NodeShape).props.node
     return n.type === 'listing_result' && n.platform !== 'ad'
   })
+}
+
+/**
+ * Re-flow the result stack after a card changed height.
+ *
+ * The top of the stack is the anchor: the first card keeps its Y, and the ones
+ * below are pushed down (or pulled back up) so every gap is exactly
+ * RESULT_STACK_GAP. Because compact heights are fixed, collapsing everything
+ * lands the cards back on their exact original coordinates.
+ *
+ * Order is taken from the current Y positions, which stay correctly ordered
+ * through a resize: expanding changes a card's height, never its top edge.
+ *
+ * Never touches the camera.
+ */
+export function restackResults(editor: Editor): void {
+  const shapes = platformResultShapes(editor)
+  if (shapes.length === 0) return
+
+  const withTop = shapes
+    .map(s => ({ shape: s, bounds: editor.getShapePageBounds(s.id) }))
+    .filter((e): e is { shape: NodeShape; bounds: NonNullable<typeof e.bounds> } => !!e.bounds)
+  if (withTop.length === 0) return
+  withTop.sort((a, b) => a.bounds.y - b.bounds.y)
+
+  const anchorY = withTop[0].bounds.y
+  // One shared X keeps the fan-out readable even if a card was dragged.
+  const x = withTop[0].bounds.x
+
+  placeStack(
+    editor,
+    withTop.map(e => e.shape),
+    x,
+    anchorY,
+  )
 }
 
 /**
@@ -503,17 +545,25 @@ export function expandResult(editor: Editor, shapeId: string) {
       if (node.expanded === want) continue
       updateNode<ListingResultNode>(editor, shape, n => ({ ...n, expanded: want }), false)
     }
+    // The expanded card is taller than the compact one it replaced; without a
+    // re-flow it would overlap whatever sits below it.
+    restackResults(editor)
   })
 }
 
 /** Collapse every result card back to the compact summary. */
 export function collapseResults(editor: Editor) {
   editor.run(() => {
+    let changed = false
     for (const shape of platformResultShapes(editor)) {
       const node = shape.props.node as ListingResultNode
       if (!node.expanded) continue
       updateNode<ListingResultNode>(editor, shape, n => ({ ...n, expanded: false }), false)
+      changed = true
     }
+    // Compact heights are fixed, so re-flowing from the same anchor puts every
+    // card back on its exact pre-expansion coordinates.
+    if (changed) restackResults(editor)
   })
 }
 
