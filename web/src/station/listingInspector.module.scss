@@ -7,7 +7,9 @@ $header-h: 96px;
 .overlay {
   position: fixed;
   inset: 0;
-  z-index: 45;
+  /* The inspector is portalled to document.body and must sit above every
+     tldraw UI layer (including the floating bottom toolbar). */
+  z-index: 2147483646;
   display: flex;
   align-items: flex-start;
   justify-content: center;

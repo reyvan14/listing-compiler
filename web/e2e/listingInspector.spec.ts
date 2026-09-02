@@ -399,3 +399,37 @@ test('the inspector sits above the Agent panel', async ({ page }) => {
   );
   expect(topmost).toBe(true);
 });
+
+test('the inspector sits above the floating tldraw toolbar and blocks canvas input', async ({
+  page,
+}) => {
+  await waitForStation(page);
+  await generate(page);
+  await openVia(page, 'amazon');
+
+  const dialog = page.locator('[role="dialog"][aria-modal="true"]');
+  const box = await dialog.boundingBox();
+  if (!box) throw new Error('inspector dialog has no bounds');
+
+  // At 1280×720 this point intersects the floating tldraw toolbar in the
+  // underlying canvas. Before the body portal fix, elementFromPoint returned a
+  // toolbar control and the modal content could not receive the click.
+  const point = {
+    x: box.x + box.width / 2,
+    y: Math.min(box.y + box.height - 12, page.viewportSize()!.height - 12),
+  };
+  const topmost = await page.evaluate(pt => {
+    const el = document.elementFromPoint(pt.x, pt.y);
+    return {
+      inInspector: !!el?.closest('[data-testid="listing-inspector"]'),
+      inTldraw: !!el?.closest('.tl-container, .tlui-layout'),
+    };
+  }, point);
+  expect(topmost.inInspector).toBe(true);
+  expect(topmost.inTldraw).toBe(false);
+
+  // The inspector/backdrop is the only interactive layer while the dialog is
+  // open; a click at the overlap must not close it or reach the canvas toolbar.
+  await page.mouse.click(point.x, point.y);
+  await expect(inspector(page)).toBeVisible();
+});

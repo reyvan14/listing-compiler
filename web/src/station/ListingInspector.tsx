@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useValue, type Editor } from 'tldraw'
 import type { NodeShape } from '@/pipeline/nodes/NodeShapeUtil'
 import {
@@ -136,7 +137,7 @@ export function ListingInspector({ editor }: { editor: Editor }) {
 
   if (!open || !node) return null
 
-  return (
+  return createPortal(
     <div className={styles.overlay} data-testid="listing-inspector">
       <div className={styles.backdrop} data-testid="inspector-backdrop" onClick={close} />
       <div
@@ -212,7 +213,8 @@ export function ListingInspector({ editor }: { editor: Editor }) {
           {tab === 'policy' && <PolicyTab node={node} />}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
