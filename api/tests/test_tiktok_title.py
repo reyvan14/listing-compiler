@@ -118,6 +118,12 @@ def test_promotional_phrases_are_caught_anywhere_in_the_title():
     assert result["tiktok.title.no_promotional_language"].ok is False
 
 
+def test_absolute_fit_claim_is_caught_anywhere_in_the_title():
+    result = _by_rule("Silicone Travel Cup 350ml. Fits anywhere.")
+    assert result["tiktok.title.no_promotional_language"].ok is False
+    assert "fits anywhere" in result["tiktok.title.no_promotional_language"].evidence
+
+
 def test_a_factual_title_is_not_flagged_as_promotional():
     assert _by_rule(CLEAN_TITLE)["tiktok.title.no_promotional_language"].ok is True
 
@@ -182,6 +188,7 @@ def test_suggested_title_is_clean_and_leads_with_brand_and_product_type():
     suggested = tiktok_title.suggest_title(FAILED_TITLE)
     assert suggested.startswith("AeroFold Silicone Travel Cup")
     assert "4.5cm" in suggested  # the factual attribute survives
+    assert "fits anywhere" not in suggested.lower()
     assert text_rules.find_emojis(suggested) == []
     assert text_rules.find_hashtags(suggested) == []
     assert text_rules.find_promotional(suggested) == []

@@ -91,6 +91,9 @@ DEFAULT_PROMO_PHRASES: tuple[str, ...] = (
     "limited time",
     "flash sale",
     "hot sale",
+    # Absolute, non-verifiable fit claim observed in the original production
+    # failure's trailing caption sentence.
+    "fits anywhere",
 )
 
 # The title's "opening" for opener matching: up to the first sentence break.

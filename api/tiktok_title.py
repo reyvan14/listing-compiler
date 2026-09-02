@@ -76,10 +76,12 @@ def _drop_promotional_sentences(text: str) -> str:
     """
     parts = [p.strip() for p in _SENTENCE_SPLIT_RE.split(text) if p.strip()]
     kept: list[str] = []
-    for i, part in enumerate(parts):
+    for part in parts:
         stripped = _strip_lead_in(part) if not kept else part
-        if not kept and _is_pure_hook(stripped) and i < len(parts) - 1:
-            continue  # leading hook with nothing substantive in it
+        if _is_pure_hook(stripped) and len(parts) > 1:
+            # A pure marketing sentence carries no product fact, regardless of
+            # whether it appears before or after the substantive title copy.
+            continue
         kept.append(stripped if not kept else part)
     # Sentence breaks become commas so the result reads as one product title
     # rather than a run-on of caption sentences.
