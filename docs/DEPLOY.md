@@ -12,12 +12,12 @@ uvicorn 进程。
 
 - Python ≥ 3.10（已在 3.12 验证），后端依赖见 `api/requirements.txt`。
 - Node ≥ 22.12（tldraw 5 要求）+ yarn，仅用于构建前端。
-- 目标服务器：`root@8.147.60.177`。**所有部署 SSH 命令都必须使用专属部署私钥
-  `~/.ssh/listing_deploy`**（其公钥已安装到服务器）。不要复制、打印、查看或以任何方式暴露该私钥。
+- 目标服务器：`root@8.147.60.177`。本机 SSH 别名为 `aioa`，使用专属部署私钥
+  `~/.ssh/aioa_key`（其公钥已安装到服务器）。不要复制、打印、查看或以任何方式暴露该私钥。
 - 连通性自检（获得访问权限后先跑这一条）：
 
   ```bash
-  ssh -i ~/.ssh/listing_deploy -o BatchMode=yes root@8.147.60.177 'hostname'
+  ssh -o BatchMode=yes aioa 'hostname'
   ```
 
   在此命令成功之前，不要部署、也不要在服务器上配置任何真实 API Key。
@@ -37,6 +37,7 @@ uvicorn 进程。
 | `TOKEN_PLAN_AGENT_MODEL` | | `qwen3.7-plus` | 工位 Agent 用的模型。 |
 | `TOKEN_PLAN_TIMEOUT_S` | | `60` | 单次 chat 读超时（秒）。超时即回退本地草稿。 |
 | `TOKEN_PLAN_CONNECT_TIMEOUT_S` | | `10` | 连接超时（秒）。 |
+| `LISTING_EVIDENCE_DIR` | | `api/data/evidence` | 证据账本持久化目录。生产环境必须指向 release 目录之外，当前为 `/var/lib/listing-compiler/evidence`。 |
 | `LISTING_UPSTREAM_URL` | | — | 可选网关层，设置后在 Token Plan 之前尝试。 |
 | `LISTING_LLM_API_KEY` / `LISTING_LLM_BASE_URL` / `LISTING_LLM_MODEL` | | — | 旧的通用 OpenAI 兼容覆盖项，向后兼容保留；仅当对应 `TOKEN_PLAN_*` 未设置时生效。 |
 
@@ -96,8 +97,12 @@ TOKEN_PLAN_API_KEY=<在此粘贴专属 Key>
 TOKEN_PLAN_BASE_URL=https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
 TOKEN_PLAN_TEXT_MODEL=qwen3.7-plus
 TOKEN_PLAN_AGENT_MODEL=qwen3.7-plus
+LISTING_EVIDENCE_DIR=/var/lib/listing-compiler/evidence
 EOF
 chmod 600 /etc/listing-compiler.env
+
+# 证据数据需要跨 release 保留，并且必须允许 systemd 服务用户读写
+install -d -m 700 -o www-data -g www-data /var/lib/listing-compiler/evidence
 ```
 
 - `/etc/listing-compiler.env` 不在 Git 仓库内、权限 600、仅 root 可读。
@@ -109,9 +114,9 @@ systemd unit 片段：
 ```ini
 # /etc/systemd/system/listing-compiler.service（示例；以服务器现有 unit 为准）
 [Service]
-WorkingDirectory=/opt/listing-compiler/api
+WorkingDirectory=/opt/listing-compiler/current/api
 EnvironmentFile=/etc/listing-compiler.env
-ExecStart=/opt/listing-compiler/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8788
+ExecStart=/opt/listing-compiler/venv/bin/uvicorn app:app --host 127.0.0.1 --port 8788
 Restart=on-failure
 ```
 
@@ -133,8 +138,8 @@ Restart=on-failure
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://<部署页面的源>"],   # 收敛到实际前端源
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Workspace-ID", "X-Product-ID"],
 )
 ```
 
@@ -161,43 +166,38 @@ yarn build          # tsc -b && vite build —— 两步都必须通过
 
 ## 5. 更新与重启（保留数据、可回滚）
 
-> 登录服务器执行以下步骤：`ssh -i ~/.ssh/listing_deploy root@8.147.60.177`。
-> 任何 `ssh` / `scp` / `rsync` 到该服务器的命令都使用 `-i ~/.ssh/listing_deploy`。
-> 变更前先按第 3 节完成备份（应用代码、systemd unit、环境文件、反向代理配置）。
+> 登录服务器执行以下步骤：`ssh aioa`。如本机没有该别名，使用
+> `ssh -i ~/.ssh/aioa_key root@8.147.60.177`。变更前先备份 systemd unit、环境文件和反向代理配置。
 
 ```bash
-# 服务器上，root。以下路径按服务器实际情况调整。
-APP=/opt/listing-compiler
-TS=$(date +%Y%m%d-%H%M%S)
+# 服务器上，root。新版本每次放在独立 release 目录。
+RELEASE=/opt/listing-compiler/releases/<timestamp>-<verified-commit>
 
-# 5.1 备份当前部署配置与代码（不删任何数据）
-cp -a /etc/systemd/system/listing-compiler.service /etc/systemd/system/listing-compiler.service.bak-$TS 2>/dev/null || true
-cp -a /etc/listing-compiler.env                    /etc/listing-compiler.env.bak-$TS
-cp -a "$APP"                                        "$APP.bak-$TS"      # 或用 git tag/branch 标记当前 commit
+# 5.1 将已验证代码放入 "$RELEASE"，并安装后端依赖
+/opt/listing-compiler/venv/bin/pip install -r "$RELEASE/api/requirements.txt"
 
-# 5.2 拉取新代码
-cd "$APP" && git fetch origin && git checkout <verified-commit>
+# 5.2 构建前端
+cd "$RELEASE/web"
+yarn install --frozen-lockfile
+yarn build
 
-# 5.3 后端依赖
-"$APP/.venv/bin/pip" install -r api/requirements.txt
-
-# 5.4 前端构建
-cd "$APP/web" && yarn install --frozen-lockfile && yarn vite build
-
-# 5.5 仅重启后端服务
-systemctl daemon-reload
+# 5.3 切换前可用临时端口启动该 release 并跑健康检查。通过后原子切换软链接。
+ln -sfn "$RELEASE" /opt/listing-compiler/current.next
+mv -Tf /opt/listing-compiler/current.next /opt/listing-compiler/current
 systemctl restart listing-compiler
-systemctl --no-pager status listing-compiler
+systemctl is-active listing-compiler
+curl -fsS http://127.0.0.1:8788/health
 ```
 
 ### 回滚
 
 ```bash
-systemctl stop listing-compiler
-rm -rf /opt/listing-compiler && mv /opt/listing-compiler.bak-$TS /opt/listing-compiler
-cp -a /etc/listing-compiler.env.bak-$TS /etc/listing-compiler.env
-cp -a /etc/systemd/system/listing-compiler.service.bak-$TS /etc/systemd/system/listing-compiler.service
-systemctl daemon-reload && systemctl start listing-compiler
+# 先用 readlink -f /opt/listing-compiler/current 确认目标，再把软链接切回已知正常的 release。
+PREVIOUS=/opt/listing-compiler/releases/<previous-timestamp>-<previous-commit>
+ln -sfn "$PREVIOUS" /opt/listing-compiler/current.next
+mv -Tf /opt/listing-compiler/current.next /opt/listing-compiler/current
+systemctl restart listing-compiler
+systemctl is-active listing-compiler
 ```
 
 ---
@@ -216,7 +216,7 @@ curl -fsS -X POST http://127.0.0.1:8788/api/listing/generate \
   | python3 -c 'import sys,json;d=json.load(sys.stdin);print("code",d["code"],"source",d["data"]["source"],"drafts",[x["id"] for x in d["data"]["drafts"]])'
 
 # Token Plan 连通性自检（不打印 Key / prompt / 响应正文）
-cd /opt/listing-compiler/api && ../.venv/bin/python scripts/check_token_plan.py
+cd /opt/listing-compiler/current/api && /opt/listing-compiler/venv/bin/python scripts/check_token_plan.py
 ```
 
 服务日志里 Token Plan 失败只会出现 `request_id` / `status` / `category`，不会有 Key、
