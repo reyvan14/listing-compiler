@@ -22,6 +22,15 @@ Amazon / TikTok Shop 商品主图偏白底无加字；Shopify 不强制白底。
                 "fields":{"prompt":"...","aspectRatio":"1:1"}}]}
 只允许这些 operation type：create_node / update_node / connect_nodes / focus_nodes / run_nodes。
 只允许这些 nodeType：sku_listing / image_generation / video_generation。
+每种操作必须严格使用以下结构，字段不可省略：
+- create_node：type,tempId,nodeType,fields，可选 position:{x,y}
+- update_node：type,nodeId,nodeType,fields（特别注意 nodeType 必填）
+- connect_nodes：type,from:{nodeId,portId},to:{nodeId,portId}
+- focus_nodes / run_nodes：type,nodeIds
+图片比例只允许 1:1、16:9、9:16、4:3、3:4、3:2；视频比例只允许 9:16、16:9、1:1，
+视频时长只允许 5s、10s、15s。不要使用 4:5，也不要创建 listing_result：它会在 SKU 节点运行后产生。
+完整三平台工作流必须包含 Amazon 白底图、TikTok 场景图、Shopify 品牌图、TikTok 视频，
+并以 run_nodes 指向 SKU 根节点；运行仍由用户二次确认。
 不要输出任何代码、脚本、命令或函数体。不要在计划里发布商品或登录任何平台账户。
 没有证据支撑的宣称不要写进任何字段。"""
 
@@ -93,6 +102,16 @@ async def agent_reply(
     )
     context = context or {}
 
+    # The named quick action is an audited product template, not an open-ended
+    # prompt. Keep this primary demo path complete and spatially deterministic:
+    # free-form canvas requests still use the model below.
+    if agent_plan.is_canonical_full_workflow_request(last_user):
+        return _deterministic_response(
+            last_user,
+            context,
+            "已使用经过验证的三平台工作流模板；运行前仍可逐项检查。",
+        )
+
     prompt: list[dict[str, str]] = [{"role": "system", "content": SYSTEM}]
     ctx_message = _context_message(context)
     if ctx_message:
@@ -104,17 +123,25 @@ async def agent_reply(
     except Exception as exc:
         # token_plan raises a sanitized error (category / status / request id).
         print(f"[agent] chat skipped: {type(exc).__name__}: {exc!r}", flush=True)
-        return _deterministic_response(last_user, context)
+        return _deterministic_response(
+            last_user,
+            context,
+            "模型服务本次未返回可用计划，已切换为安全工作流模板。",
+        )
 
     plan = None
+    fallback_warning: str | None = None
     candidate = agent_plan.extract_plan_json(raw)
     if candidate is not None:
         try:
-            plan = agent_plan.validate_plan(candidate)
+            plan = agent_plan.validate_plan(_complete_update_node_types(candidate, context))
         except agent_plan.PlanError as exc:
             # A model plan we cannot trust is dropped, not repaired.
             print(f"[agent] plan rejected: {exc}", flush=True)
             plan = None
+            fallback_warning = "模型计划未通过画布协议校验，已切换为安全工作流模板。"
+    elif _looks_like_canvas_request(last_user):
+        fallback_warning = "模型本次只返回了说明文字，已切换为安全工作流模板。"
 
     reply = _strip_json_block(raw)
     if plan is None and _looks_like_canvas_request(last_user):
@@ -122,21 +149,59 @@ async def agent_reply(
         # back to the deterministic planner rather than leaving them with text.
         fallback = agent_plan.deterministic_plan(last_user, context)
         if fallback:
+            if fallback_warning:
+                fallback["warnings"] = [fallback_warning, *(fallback.get("warnings") or [])]
             plan = agent_plan.validate_plan(fallback)
             reply = reply or agent_plan.plan_reply(plan)
     return {"reply": reply or fallback_reply(last_user), "plan": plan}
 
 
-def _deterministic_response(last_user: str, context: dict[str, Any]) -> dict[str, Any]:
+def _deterministic_response(
+    last_user: str,
+    context: dict[str, Any],
+    warning: str | None = None,
+) -> dict[str, Any]:
     raw_plan = agent_plan.deterministic_plan(last_user, context)
     if raw_plan is None:
         return {"reply": fallback_reply(last_user), "plan": None}
+    if warning:
+        raw_plan["warnings"] = [warning, *(raw_plan.get("warnings") or [])]
     plan = agent_plan.validate_plan(raw_plan)
     return {"reply": agent_plan.plan_reply(plan), "plan": plan}
 
 
 def _looks_like_canvas_request(text: str) -> bool:
     return bool(agent_plan.deterministic_plan(text, {}))
+
+
+def _complete_update_node_types(candidate: Any, context: dict[str, Any]) -> Any:
+    """Fill one redundant model field from the live canvas safely.
+
+    ``update_node.nodeType`` is required so writable fields can be validated.
+    Models occasionally omit it even when they reference an existing node. Its
+    type is already authoritative in the bounded canvas context, so copying
+    that exact allow-listed value is deterministic rather than guessing. No
+    other malformed field is repaired.
+    """
+    if not isinstance(candidate, dict) or not isinstance(candidate.get("operations"), list):
+        return candidate
+    node_types = {
+        str(node.get("id")): node.get("type")
+        for node in (context.get("nodes") or [])
+        if isinstance(node, dict) and node.get("type") in agent_plan.NODE_TYPES
+    }
+    operations: list[Any] = []
+    for raw in candidate["operations"]:
+        if not isinstance(raw, dict):
+            operations.append(raw)
+            continue
+        op = dict(raw)
+        if op.get("type") == "update_node" and not op.get("nodeType"):
+            inferred = node_types.get(str(op.get("nodeId") or ""))
+            if inferred:
+                op["nodeType"] = inferred
+        operations.append(op)
+    return {**candidate, "operations": operations}
 
 
 def _strip_json_block(raw: str) -> str:

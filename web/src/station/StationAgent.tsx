@@ -45,7 +45,7 @@ const GREETING: ChatItem = {
 }
 
 const QUICK_ACTIONS = [
-  '为这个 SKU 创建三台完整上新工作流',
+  '为这个 SKU 创建三平台完整工作流（含短视频）',
   '给主图节点补一条白底提示词',
   '把没有证据支撑的宣称从卖点里去掉',
   '连接选中的两个节点',
@@ -176,8 +176,12 @@ export function StationAgent({
       planId,
       nodeIds: touched,
       runNodeIds: nodesToRun,
-      text: `已应用到画布：新建 ${result.createdNodeIds.length} 个节点，修改 ${result.updatedNodeIds.length} 个，连接 ${result.connectionIds.length} 条。尚未生成任何内容。`,
+      text: `节点已创建并填好配置：新建 ${result.createdNodeIds.length} 个，修改 ${result.updatedNodeIds.length} 个，连接 ${result.connectionIds.length} 条。尚未生成任何内容，也未调用模型；要得到图片、视频和三平台文案，请点击下方「开始生成」。`,
     })
+    // Applying a multi-node plan is an explicit navigation event. Frame the
+    // whole changed group so the operator immediately sees the topology they
+    // approved instead of finding new nodes off-screen.
+    focusAgentNodes(editor, touched)
 
     if (!thenRun) {
       applyingPlans.current.delete(planId)
@@ -328,7 +332,7 @@ export function StationAgent({
                                 void run(item.planId, item.runNodeIds)
                               }}
                             >
-                              确认运行（会调用模型）
+                              确认生成（会调用模型）
                             </button>
                             <button type="button" onClick={() => setConfirmRunAt(null)}>
                               取消
@@ -336,7 +340,7 @@ export function StationAgent({
                           </>
                         ) : (
                           <button type="button" onClick={() => setConfirmRunAt(i)}>
-                            运行这些节点
+                            开始生成
                           </button>
                         )
                       )}

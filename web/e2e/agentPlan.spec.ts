@@ -45,8 +45,10 @@ test.describe('Agent canvas operations', () => {
 
     // The card must spell out what it would do before anything happens.
     await expect(card).toContainText('新建');
+    await expect(card).toContainText('视频生成');
     await expect(card.locator('[data-testid="plan-state"]')).toHaveText('待你确认');
-    await expect(card.getByRole('button', { name: '应用到画布' })).toBeVisible();
+    await expect(card.getByRole('button', { name: '仅创建节点' })).toBeVisible();
+    await expect(card.getByRole('button', { name: '创建并生成' })).toBeVisible();
 
     // ...and the canvas is untouched while the card sits there.
     expect(await page.locator(NODES).count()).toBe(before);
@@ -81,14 +83,19 @@ test.describe('Agent canvas operations', () => {
     const card = page.locator(PLAN_CARD);
     await expect(card).toBeVisible({ timeout: 20_000 });
 
-    await card.getByRole('button', { name: '应用到画布' }).click();
+    await card.getByRole('button', { name: '仅创建节点' }).click();
 
     await expect(card.locator('[data-testid="plan-state"]')).toHaveText('已应用到画布');
     await expect(page.locator(NODES)).not.toHaveCount(before);
+    await page.waitForTimeout(450);
+    const zoom = await page.evaluate(
+      () => (window as unknown as { editor: { getCamera(): { z: number } } }).editor.getCamera().z,
+    );
+    expect(zoom).toBeLessThan(0.9);
 
     // The activity message reports application, never generation.
     const log = page.locator('aside[aria-label="Agent 对话"]');
-    await expect(log).toContainText('已应用到画布');
+    await expect(log).toContainText('节点已创建并填好配置');
     await expect(log).toContainText('尚未生成任何内容');
     await expect(log).not.toContainText('已发布');
 
@@ -105,7 +112,7 @@ test.describe('Agent canvas operations', () => {
     const card = page.locator(PLAN_CARD);
     await expect(card).toBeVisible({ timeout: 20_000 });
 
-    const runButton = card.getByRole('button', { name: '应用并运行' });
+    const runButton = card.getByRole('button', { name: '创建并生成' });
     if (await runButton.count()) {
       await runButton.click();
       const confirm = card.locator('[role="alertdialog"]');
@@ -166,8 +173,8 @@ test.describe('Agent canvas operations', () => {
     );
     const card = page.locator(PLAN_CARD);
     await expect(card).toBeVisible({ timeout: 20_000 });
-    await card.getByRole('button', { name: '应用并运行' }).click();
-    await card.getByRole('button', { name: '确认应用并运行' }).click();
+    await card.getByRole('button', { name: '创建并生成' }).click();
+    await card.getByRole('button', { name: '确认创建并生成' }).click();
 
     await expect(card.locator('[data-testid="plan-state"]')).toHaveText('已运行完成', {
       timeout: 20_000,
@@ -181,16 +188,16 @@ test.describe('Agent canvas operations', () => {
     await ask(page, '为这个 SKU 创建三台完整上新工作流');
     const card = page.locator(PLAN_CARD);
     await expect(card).toBeVisible({ timeout: 20_000 });
-    await card.getByRole('button', { name: '应用到画布' }).click();
+    await card.getByRole('button', { name: '仅创建节点' }).click();
 
     const log = page.locator('aside[aria-label="Agent 对话"]');
-    await log.getByRole('button', { name: '运行这些节点' }).click();
+    await log.getByRole('button', { name: '开始生成' }).click();
     // The click only arms the action; it must not have called anything yet.
-    await expect(log.getByRole('button', { name: '确认运行（会调用模型）' })).toBeVisible();
+    await expect(log.getByRole('button', { name: '确认生成（会调用模型）' })).toBeVisible();
     await expect(log).not.toContainText('已触发这些节点的生成');
 
     await log.getByRole('button', { name: '取消' }).click();
-    await expect(log.getByRole('button', { name: '运行这些节点' })).toBeVisible();
+    await expect(log.getByRole('button', { name: '开始生成' })).toBeVisible();
     await expect(log).not.toContainText('已触发这些节点的生成');
   });
 
@@ -211,7 +218,7 @@ test.describe('Agent canvas operations', () => {
 
     await card.getByRole('button', { name: '取消' }).click();
     await expect(card.locator('[data-testid="plan-state"]')).toHaveText('已取消');
-    await expect(card.getByRole('button', { name: '应用到画布' })).toHaveCount(0);
+    await expect(card.getByRole('button', { name: '仅创建节点' })).toHaveCount(0);
     expect(await page.locator(NODES).count()).toBe(before);
   });
 

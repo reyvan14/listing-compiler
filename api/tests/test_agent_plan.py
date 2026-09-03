@@ -214,6 +214,7 @@ def test_any_run_operation_forces_the_second_confirmation():
         }
     )
     assert plan["requiresRunConfirmation"] is True
+    assert plan["estimatedModelCalls"] == 1
 
 
 def test_malformed_model_json_yields_no_plan():
@@ -269,6 +270,46 @@ def test_three_station_quick_action_defaults_to_all_platforms():
         if o["type"] == "create_node" and o["nodeType"] == "image_generation"
     }
     assert image_names == {"Amazon 白底主图", "TikTok 场景图", "Shopify 品牌生活图"}
+    videos = [
+        o
+        for o in plan["operations"]
+        if o["type"] == "create_node" and o["nodeType"] == "video_generation"
+    ]
+    assert len(videos) == 1
+    assert videos[0]["fields"]["platform"] == "TikTok"
+
+
+def test_named_full_workflow_quick_action_uses_the_audited_template(monkeypatch):
+    monkeypatch.setenv("TOKEN_PLAN_API_KEY", "sk-test")
+
+    async def must_not_run(messages, *, model=None, timeout=None):
+        raise AssertionError("the named workflow template must not call the planner model")
+
+    monkeypatch.setattr(token_plan, "chat_completion", must_not_run)
+    out = run(
+        agent.agent_reply(
+            [{"role": "user", "content": "为这个 SKU 创建三平台完整工作流（含短视频）"}],
+            ctx(),
+        )
+    )
+    creates = [o for o in out["plan"]["operations"] if o["type"] == "create_node"]
+    assert [o["nodeType"] for o in creates].count("image_generation") == 3
+    assert [o["nodeType"] for o in creates].count("video_generation") == 1
+    assert any("经过验证" in warning for warning in out["plan"]["warnings"])
+
+
+def test_full_workflow_positions_follow_the_live_sku():
+    context = ctx()
+    context["nodes"][0]["position"] = {"x": 1200, "y": 800}
+    plan = ap.validate_plan(ap.deterministic_plan("创建三平台完整工作流", context))
+    creates = [o for o in plan["operations"] if o["type"] == "create_node"]
+    images = [o for o in creates if o["nodeType"] == "image_generation"]
+    video = next(o for o in creates if o["nodeType"] == "video_generation")
+    by_name = {o["fields"]["name"]: o["position"] for o in images}
+    assert by_name["Amazon 白底主图"] == {"x": 1640.0, "y": 800.0}
+    assert by_name["TikTok 场景图"] == {"x": 1640.0, "y": 1160.0}
+    assert by_name["Shopify 品牌生活图"] == {"x": 2080.0, "y": 800.0}
+    assert video["position"] == {"x": 2080.0, "y": 1160.0}
 
 
 def test_the_plan_surfaces_evidence_state_as_warnings():
@@ -420,6 +461,37 @@ def test_model_prose_still_yields_a_deterministic_plan_for_a_canvas_request(monk
     monkeypatch.setattr(token_plan, "chat_completion", prose)
     out = run(agent.agent_reply([{"role": "user", "content": DEMO_COMMAND}], ctx()))
     assert out["plan"] is not None
+    assert any("安全工作流模板" in warning for warning in out["plan"]["warnings"])
+
+
+def test_model_update_type_is_completed_from_the_live_canvas(monkeypatch):
+    monkeypatch.setenv("TOKEN_PLAN_API_KEY", "sk-test")
+
+    async def missing_redundant_type(messages, *, model=None, timeout=None):
+        return (
+            "我先给出计划。\n```json\n"
+            + json.dumps(
+                {
+                    "title": "更新 SKU",
+                    "summary": "启用三平台",
+                    "estimatedModelCalls": 0,
+                    "warnings": [],
+                    "operations": [
+                        {
+                            "type": "update_node",
+                            "nodeId": "shape:sku",
+                            "fields": {"amazon": True, "tiktok": True, "shopify": True},
+                        }
+                    ],
+                }
+            )
+            + "\n```"
+        )
+
+    monkeypatch.setattr(token_plan, "chat_completion", missing_redundant_type)
+    out = run(agent.agent_reply([{"role": "user", "content": DEMO_COMMAND}], ctx()))
+    assert out["plan"]["operations"][0]["nodeType"] == "sku_listing"
+    assert not any("安全工作流模板" in warning for warning in out["plan"]["warnings"])
 
 
 def test_the_canvas_context_reaches_the_model_marked_as_untrusted(monkeypatch):

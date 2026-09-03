@@ -108,8 +108,8 @@ export function AgentPlanCard({
       {confirmingRun ? (
         <div className={styles.confirm} role="alertdialog" aria-label="确认运行">
           <p>
-            运行会调用生成模型并产生费用，预计 {plan.estimatedModelCalls} 次调用。
-            不会发布到任何平台。
+            将先创建并连接节点，再调用生成模型，预计 {plan.estimatedModelCalls} 次，可能产生费用。
+            生成结果会留在画布中，不会发布到任何平台。
           </p>
           <div className={styles.confirmBtns}>
             <button
@@ -120,7 +120,7 @@ export function AgentPlanCard({
                 onApplyAndRun();
               }}
             >
-              确认应用并运行
+              确认创建并生成
             </button>
             <button type="button" onClick={() => setConfirmingRun(false)}>
               返回
@@ -139,23 +139,19 @@ export function AgentPlanCard({
                 在画布预览
               </button>
             )}
-            <button
-              type="button"
-              className={styles.primary}
-              onClick={onApply}
-              disabled={busy}
-            >
-              应用到画布
-            </button>
             {(plan.estimatedModelCalls > 0 || counts.runs > 0) && (
               <button
                 type="button"
+                className={styles.primary}
                 onClick={() => setConfirmingRun(true)}
                 disabled={busy}
               >
-                应用并运行
+                创建并生成
               </button>
             )}
+            <button type="button" onClick={onApply} disabled={busy}>
+              仅创建节点
+            </button>
             <button type="button" onClick={onCancel} disabled={busy}>
               取消
             </button>

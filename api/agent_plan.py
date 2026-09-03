@@ -243,6 +243,8 @@ def validate_plan(raw: Any) -> dict[str, Any]:
     if not 0 <= estimated_calls <= 50:
         raise PlanError("estimatedModelCalls 超出范围")
     runs = [op for op in operations if op["type"] == "run_nodes"]
+    if runs and estimated_calls == 0:
+        estimated_calls = 1
 
     return {
         "id": _clean_text(raw.get("id") or f"plan-{uuid.uuid4().hex[:10]}", 60),
@@ -266,8 +268,8 @@ def validate_plan(raw: Any) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 
 #: Canvas geometry for laid-out plans. Left-to-right dependency flow: the SKU
-#: compiler on the left, its image branch next, video downstream of that. The
-#: client re-lays-out anyway; these are hints so a plan reads sensibly on its own.
+#: compiler on the left, its image branch next, video downstream of that. These
+#: positions are anchored to the live SKU; the client frames the changed group.
 _COL_SKU = 36
 _COL_IMAGE = 470
 _COL_VIDEO = 900
@@ -332,6 +334,22 @@ def _intent(text: str) -> set[str]:
     return tags
 
 
+def is_canonical_full_workflow_request(text: str) -> bool:
+    """Whether the user selected the audited three-platform workflow template.
+
+    This intentionally matches only the product's named quick action, not every
+    free-form request that happens to mention a workflow. The named action is a
+    stable UI contract: it must always produce the complete, tested topology
+    instead of depending on a model to rediscover its four required branches.
+    """
+    normalized = re.sub(r"\s+", "", (text or "").lower())
+    named_template = any(
+        phrase in normalized
+        for phrase in ("三平台完整工作流", "三台完整上新工作流")
+    )
+    return named_template and _has_action(text)
+
+
 def _evidence_warnings(context: dict[str, Any]) -> list[str]:
     """Turn the evidence summary into plain warnings the plan card can show."""
     summary = (context or {}).get("evidenceSummary") or {}
@@ -375,6 +393,24 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
     want_amazon = "amazon" in tags or all_platforms or not explicit_platforms
     want_tiktok = "tiktok" in tags or all_platforms
     want_shopify = "shopify" in tags or all_platforms
+    want_video = want_tiktok and ("video" in tags or "full_workflow" in tags)
+
+    # Anchor generated branches to the live SKU instead of fixed global
+    # coordinates. A moved SKU therefore cannot make a new plan land back on
+    # top of the station origin. Three platform assets form readable lanes;
+    # TikTok video continues to the right of its scene image.
+    position = (sku or {}).get("position") or {}
+    try:
+        sku_x = float(position.get("x", _COL_SKU))
+        sku_y = float(position.get("y", _ROW_TOP))
+        if not (-99_000 < sku_x < 99_000 and -99_000 < sku_y < 99_000):
+            raise ValueError
+    except (TypeError, ValueError):
+        sku_x, sku_y = _COL_SKU, _ROW_TOP
+    image_x = sku_x + 440
+    video_x = image_x + 440
+    row_top = sku_y
+    balanced_full = want_amazon and want_tiktok and want_shopify and want_video
 
     sku_ref = sku["id"] if sku else "sku1"
     sku_fields = {
@@ -398,7 +434,7 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
                 "tempId": sku_ref,
                 "nodeType": "sku_listing",
                 "fields": sku_fields,
-                "position": {"x": _COL_SKU, "y": _ROW_TOP},
+                "position": {"x": sku_x, "y": sku_y},
             }
         )
         creates.append(sku_ref)
@@ -418,7 +454,7 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
                         "主体占画面 85%，柔和棚拍光，无文字、无 logo、无边框、无水印。"
                     ),
                 },
-                "position": {"x": _COL_IMAGE, "y": _ROW_TOP + row * _ROW_STEP},
+                "position": {"x": image_x, "y": row_top + row * _ROW_STEP},
             }
         )
         ops.append(
@@ -445,7 +481,7 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
                         "自然光，手持或随身携带，真实质感，无促销文字。"
                     ),
                 },
-                "position": {"x": _COL_IMAGE, "y": _ROW_TOP + row * _ROW_STEP},
+                "position": {"x": image_x, "y": row_top + row * _ROW_STEP},
             }
         )
         ops.append(
@@ -457,7 +493,7 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
         )
         creates.append("img_tiktok")
 
-        if "video" in tags:
+        if want_video:
             ops.append(
                 {
                     "type": "create_node",
@@ -473,7 +509,7 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
                             "轻微倒置展示防漏，最后折回收纳。自然光，无口播促销字幕。"
                         ),
                     },
-                    "position": {"x": _COL_VIDEO, "y": _ROW_TOP + row * _ROW_STEP},
+                    "position": {"x": video_x, "y": row_top + row * _ROW_STEP},
                 }
             )
             # the scene image becomes the video's first frame
@@ -501,7 +537,10 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
                         "品牌调性，允许非白底，无促销文字。"
                     ),
                 },
-                "position": {"x": _COL_IMAGE, "y": _ROW_TOP + row * _ROW_STEP},
+                "position": {
+                    "x": video_x if balanced_full else image_x,
+                    "y": row_top if balanced_full else row_top + row * _ROW_STEP,
+                },
             }
         )
         ops.append(
