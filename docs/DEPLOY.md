@@ -1,0 +1,252 @@
+# 部署说明（Deployment）
+
+跨境上架编译器 = 一个 FastAPI 后端（`api/`，端口 8788）+ 一份前端构建产物（`web/dist/`）。
+`api/app.py` 在检测到 `web/dist/` 存在时直接托管前端，因此生产环境通常只需运行一个
+uvicorn 进程。
+
+本文档覆盖 **Token Plan（指定模型）** 接入后的部署要点。
+
+---
+
+## 1. 前置条件
+
+- Python ≥ 3.10（已在 3.12 验证），后端依赖见 `api/requirements.txt`。
+- Node ≥ 22.12（tldraw 5 要求）+ yarn，仅用于构建前端。
+- 目标服务器：`root@8.147.60.177`。本机 SSH 别名为 `aioa`，使用专属部署私钥
+  `~/.ssh/aioa_key`（其公钥已安装到服务器）。不要复制、打印、查看或以任何方式暴露该私钥。
+- 连通性自检（获得访问权限后先跑这一条）：
+
+  ```bash
+  ssh -o BatchMode=yes aioa 'hostname'
+  ```
+
+  在此命令成功之前，不要部署、也不要在服务器上配置任何真实 API Key。
+
+---
+
+## 2. 环境变量
+
+后端在启动时读取环境变量（`api/envutil.py` 也会加载同目录 `api/.env`，但真实环境变量优先）。
+**Token Plan 的 Key 必须放在仓库之外。**
+
+| 变量 | 必填 | 默认 | 说明 |
+|---|---|---|---|
+| `TOKEN_PLAN_API_KEY` | ✅ | — | 专属 Key。仅放在服务器上、不进 Git、不打印、不写日志。 |
+| `TOKEN_PLAN_BASE_URL` | | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | 专属 base URL。**不要**用通用 `dashscope.aliyuncs.com`，否则不消耗 Token Plan 额度。 |
+| `TOKEN_PLAN_TEXT_MODEL` | | `qwen3.7-plus` | 生成三台草稿用的文本模型。可改为任意 Token Plan 文本模型。 |
+| `TOKEN_PLAN_AGENT_MODEL` | | `qwen3.7-plus` | 工位 Agent 用的模型。 |
+| `TOKEN_PLAN_TIMEOUT_S` | | `60` | 单次 chat 读超时（秒）。超时即回退本地草稿。 |
+| `TOKEN_PLAN_CONNECT_TIMEOUT_S` | | `10` | 连接超时（秒）。 |
+| `LISTING_EVIDENCE_DIR` | | `api/data/evidence` | 证据账本持久化目录。生产环境必须指向 release 目录之外，当前为 `/var/lib/listing-compiler/evidence`。 |
+| `LISTING_UPSTREAM_URL` | | — | 可选网关层，设置后在 Token Plan 之前尝试。 |
+| `LISTING_LLM_API_KEY` / `LISTING_LLM_BASE_URL` / `LISTING_LLM_MODEL` | | — | 旧的通用 OpenAI 兼容覆盖项，向后兼容保留；仅当对应 `TOKEN_PLAN_*` 未设置时生效。 |
+
+### 图片 / 视频生成（两套协议并存）
+
+图片走 `api/images.py`，视频走 `api/media.py`。两条链路都同时支持**旧供应商**（OpenAI 兼容
+`/images/generations`、PoloAPI 风格 `/videos`）和 **Token Plan 专用协议**，互不影响：
+
+| 变量 | 必填 | 默认 | 说明 |
+|---|---|---|---|
+| `LISTING_IMAGE_PROVIDER` / `LISTING_VIDEO_PROVIDER` | | 自动 | 显式选 `token_plan` 或 `legacy`。留空时：对应 `*_BASE_URL` 命中 `token-plan.` 域名则自动判定为 `token_plan`，否则 `legacy`。 |
+| `LISTING_IMAGE_API_KEY` / `LISTING_VIDEO_API_KEY` | | — | 媒体专用 Key。**未设置时回退到 `TOKEN_PLAN_API_KEY`**（生产由 systemd 注入的同一把专属 Key）。 |
+| `LISTING_IMAGE_MODEL` | | `gpt-image-2-c` / `qwen-image-2.0` | 留空时按 provider 取默认：legacy 用 `gpt-image-2-c`，token_plan 用 `qwen-image-2.0`。 |
+| `LISTING_VIDEO_MODEL` | | `sora-2` / `happyhorse-1.1-t2v` | 同上，token_plan 默认 `happyhorse-1.1-t2v`（文生视频）。 |
+| `LISTING_VIDEO_IMAGE_MODEL` | | `happyhorse-1.1-i2v` | 图生视频（请求带 `first_frame_url`）用的模型。文生视频的 `LISTING_VIDEO_MODEL` 覆盖**不会**用于图生视频。 |
+| `TOKEN_PLAN_MEDIA_BASE_URL` | | `https://token-plan.cn-beijing.maas.aliyuncs.com` | Token Plan 媒体协议的 origin 覆盖（主要给测试用）。 |
+| `LISTING_VIDEO_POLL_INTERVAL_S` | | `15` | Token Plan 视频为异步任务，提交后按此间隔轮询 `GET /api/v1/tasks/{task_id}`。 |
+| `LISTING_VIDEO_POLL_TIMEOUT_S` | | `600` | 轮询整体超时（秒）；超时返回 504。测试时调小。 |
+| `LISTING_VIDEO_RESOLUTION` | | 由宽高比推导 | 固定输出分辨率（如 `720P` / `1080P`）。 |
+
+Token Plan 专用端点（专属 host，不要用通用 `dashscope.aliyuncs.com`）：
+
+- 图片：`POST /api/v1/services/aigc/multimodal-generation/generation`，从
+  `output.choices[*].message.content[*].image` 取 URL；前端 `1024x1024` 尺寸会规范化为 `1024*1024`。
+- 视频：`POST /api/v1/services/aigc/video-generation/video-synthesis`（请求头带
+  `X-DashScope-Async: enable`），取 `output.task_id`；轮询 `GET /api/v1/tasks/{task_id}`，
+  `output.task_status` 为 `SUCCEEDED` 时取 `output.video_url`，`FAILED` 时返回明确错误。
+  现有 `seconds` / `size` 输入映射到 `duration` / `resolution` / `ratio`。
+- 图生视频：`POST /api/media/video` 可带可选的 `first_frame_url`（**仅** HTTP(S) URL 或图片
+  data URL，其它一律忽略并退回文生视频）。带首帧时改用 `happyhorse-1.1-i2v`（或
+  `LISTING_VIDEO_IMAGE_MODEL`），`input.media` 放一个 `{"type": "first_frame", "url": ...}`，
+  且**不发** `parameters.ratio`——图生视频跟随源图比例。legacy 协议无图片输入，行为保持不变。
+
+### 选择默认模型的理由
+
+仓库未指定某个确切模型（原默认是 `qwen-plus`）。本次选 **`qwen3.7-plus`**：与官方示例一致、
+属于较快的 "plus" 档，避免默认返回 reasoning、响应更慢的 `qwen3.6` 变体。可随时用
+`TOKEN_PLAN_TEXT_MODEL` / `TOKEN_PLAN_AGENT_MODEL` 覆盖，无需改代码。
+
+---
+
+## 3. 在服务器上安全放置 Key（仓库之外）
+
+> **Key 轮换（上线前必做）**：此前在协作过程中出现过的 Token Plan Key 应视为**已泄露**，
+> 在跑真实模型测试之前必须在 Token Plan 控制台**吊销并重新签发**。新 Key 只写入下面的
+> 服务器环境文件，**绝不**硬编码、提交、打印或写入日志。仓库里只有变量名 `TOKEN_PLAN_API_KEY`，
+> 没有任何 Key 值；`api/token_plan.py` 在调用时才从环境变量读取，失败日志只含
+> `request_id / status / category`。
+
+推荐用 systemd 的 `EnvironmentFile`：
+
+```bash
+# 服务器上，root
+install -m 600 /dev/null /etc/listing-compiler.env
+cat > /etc/listing-compiler.env <<'EOF'
+TOKEN_PLAN_API_KEY=<在此粘贴专属 Key>
+TOKEN_PLAN_BASE_URL=https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+TOKEN_PLAN_TEXT_MODEL=qwen3.7-plus
+TOKEN_PLAN_AGENT_MODEL=qwen3.7-plus
+LISTING_EVIDENCE_DIR=/var/lib/listing-compiler/evidence
+EOF
+chmod 600 /etc/listing-compiler.env
+
+# 证据数据需要跨 release 保留，并且必须允许 systemd 服务用户读写
+install -d -m 700 -o www-data -g www-data /var/lib/listing-compiler/evidence
+```
+
+- `/etc/listing-compiler.env` 不在 Git 仓库内、权限 600、仅 root 可读。
+- 不要 `echo $TOKEN_PLAN_API_KEY`、不要写进 shell history（用 `cat > file <<'EOF'` 或编辑器）。
+- 校验（不打印 Key）：`grep -c TOKEN_PLAN_API_KEY /etc/listing-compiler.env` 应为 `1`。
+
+systemd unit 片段：
+
+```ini
+# /etc/systemd/system/listing-compiler.service（示例；以服务器现有 unit 为准）
+[Service]
+WorkingDirectory=/opt/listing-compiler/current/api
+EnvironmentFile=/etc/listing-compiler.env
+ExecStart=/opt/listing-compiler/venv/bin/uvicorn app:app --host 127.0.0.1 --port 8788
+Restart=on-failure
+```
+
+---
+
+## 3a. 前端 API 地址与跨域（CORS）
+
+前端所有 API 调用都经由单一客户端 `web/src/station/apiClient.ts` 解析地址：
+
+- **默认**：同源相对路径 `/api/...`（FastAPI 直接托管 `web/dist` 时用这个，无需 CORS）。
+- **可选覆盖**：构建时设 `VITE_LISTING_API=https://api.example.com`，则 listing / agent /
+  media / rules 全部请求 `https://api.example.com/api/...`（见
+  `web/src/station/secondOriginResolution.test.ts`）。
+
+当 `VITE_LISTING_API` 指向**与页面不同的源**时，后端必须允许该源跨域：
+
+```python
+# api/app.py 的 CORS 中间件（当前为 allow_origins=["*"]，可用但过宽）
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://<部署页面的源>"],   # 收敛到实际前端源
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Workspace-ID", "X-Product-ID"],
+)
+```
+
+同源部署（默认）不需要改 CORS。仅当前端与 API 分离部署时按上面收敛 `allow_origins`。
+
+---
+
+## 4. 构建前端
+
+```bash
+cd web
+yarn install --frozen-lockfile
+yarn build          # tsc -b && vite build —— 两步都必须通过
+```
+
+`yarn typecheck`（`tsc -b`）与 `yarn build` 现在都干净通过（0 error）。历史遗留的 21 个 `tsc`
+错误已在本轮修复：扩展了 `lib/pipeline-spec.ts` 的类型契约以匹配其消费方、删除三处指向未注册
+节点类型（`capture` / `message`）的死分支、把 `SkuListingNode.tsx` / `ListingResultNode.tsx`
+改用与同目录其它节点一致的 `export type X = T.TypeOf<typeof X>` 声明。未使用 `any` 强转、
+`ts-ignore` 或关闭任何检查。`yarn build:app` / 直接 `vite build` 只是省去类型检查的快捷方式，
+不作为发布判据。
+
+---
+
+## 5. 更新与重启（保留数据、可回滚）
+
+> 登录服务器执行以下步骤：`ssh aioa`。如本机没有该别名，使用
+> `ssh -i ~/.ssh/aioa_key root@8.147.60.177`。变更前先备份 systemd unit、环境文件和反向代理配置。
+
+```bash
+# 服务器上，root。新版本每次放在独立 release 目录。
+RELEASE=/opt/listing-compiler/releases/<timestamp>-<verified-commit>
+
+# 5.1 将已验证代码放入 "$RELEASE"，并安装后端依赖
+/opt/listing-compiler/venv/bin/pip install -r "$RELEASE/api/requirements.txt"
+
+# 5.2 构建前端
+cd "$RELEASE/web"
+yarn install --frozen-lockfile
+yarn build
+
+# 5.3 切换前可用临时端口启动该 release 并跑健康检查。通过后原子切换软链接。
+ln -sfn "$RELEASE" /opt/listing-compiler/current.next
+mv -Tf /opt/listing-compiler/current.next /opt/listing-compiler/current
+systemctl restart listing-compiler
+systemctl is-active listing-compiler
+curl -fsS http://127.0.0.1:8788/health
+```
+
+### 回滚
+
+```bash
+# 先用 readlink -f /opt/listing-compiler/current 确认目标，再把软链接切回已知正常的 release。
+PREVIOUS=/opt/listing-compiler/releases/<previous-timestamp>-<previous-commit>
+ln -sfn "$PREVIOUS" /opt/listing-compiler/current.next
+mv -Tf /opt/listing-compiler/current.next /opt/listing-compiler/current
+systemctl restart listing-compiler
+systemctl is-active listing-compiler
+```
+
+---
+
+## 6. 部署后健康检查
+
+```bash
+# 后端存活
+curl -fsS http://127.0.0.1:8788/health                 # 期望 {"ok":true}
+curl -fsS http://127.0.0.1:8788/api/rules | head -c 80  # 期望三台规则 JSON
+
+# 生成链路（未配 Key 时 source=fallback；配了 Key 且成功时 source=llm）
+curl -fsS -X POST http://127.0.0.1:8788/api/listing/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"product_name":"Foldable Cup","points":"folds\nleak proof","platforms":["amazon"],"asset_mode":"compliant","uploads":[]}' \
+  | python3 -c 'import sys,json;d=json.load(sys.stdin);print("code",d["code"],"source",d["data"]["source"],"drafts",[x["id"] for x in d["data"]["drafts"]])'
+
+# Token Plan 连通性自检（不打印 Key / prompt / 响应正文）
+cd /opt/listing-compiler/current/api && /opt/listing-compiler/venv/bin/python scripts/check_token_plan.py
+```
+
+服务日志里 Token Plan 失败只会出现 `request_id` / `status` / `category`，不会有 Key、
+Authorization 头、prompt 或模型响应正文。
+
+---
+
+## 7. 本地验证命令（部署前）
+
+```bash
+# 后端
+cd api && pip install -r requirements.txt -r requirements-dev.txt && pytest
+
+# 前端：类型检查 + 生产打包 + 单测 + 浏览器 E2E
+cd web && yarn install --frozen-lockfile
+yarn typecheck        # tsc -b —— 0 error
+yarn build            # tsc -b && vite build
+yarn test             # vitest
+yarn test:e2e         # playwright，用 uvicorn 托管 web/dist
+```
+
+E2E 需要 Node ≥ 22.12 与 Playwright 的 Chromium（`npx playwright install chromium`）。
+
+---
+
+## 8. 已知限制 / 待办
+
+- `api/` 无既有 lint 配置；本轮用 `pyflakes` 做静态检查（干净）。
+- tldraw 仍使用内嵌 eval 许可证 + `vite.config.ts` 的 `keepTldrawEditor` transform；
+  升级 tldraw 补丁版本可能使该 transform 失效，应改为正式许可证 Key（走环境变量）。
+- 生产包体 `index.js` ≈ 2 MB（gzip ≈ 625 KB），未做代码分割。
+- 取消（Cancel）会中止在途 listing 请求并阻止结果落地；但 Agent / 媒体节点的在途请求
+  目前只受各自超时约束，没有单独的取消按钮。

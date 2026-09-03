@@ -1,0 +1,100 @@
+# Bundled policy snapshot — dated excerpt of TikTok Shop US seller guidance.
+platform: tiktok
+market: US
+version: tiktok-us-2025.03
+status: current
+effective_date: "2025-03-01"
+excerpt_date: "2026-08-25"
+source_name: TikTok Shop 美国卖家大学 — Listing 优化
+source_url: https://seller-us.tiktok.com/university/essay?knowledge_id=7073362639816491&lang=en
+summary: >-
+  商品标题 25–200 字符，需客观描述商品本身；避免符号与特殊字符（含 #）、避免营销用语与主观评价；
+  建议包含品牌、品类、关键属性、规格/数量。商品卡主图偏白底、无加字，且不同于信息流广告封面。
+display:
+  name: TikTok Shop
+  role: 货架 · 连着内容
+  image_label: 商品卡主图
+  image_summary: 商品卡主图偏白底、无加字；≠ 信息流广告封面
+notes: >-
+  已对照 source_url 摘录复核标题阈值，发布规则仍写 25–200 字符。TikTok 另一个
+  “Product Detail Pages & Listing Quality Guidelines”页面将 Good 质量档写为 25–255；
+  两页口径不一致，因此本工具采用更保守的 25–200 作为发布前校验，不把 255
+  误写成统一硬性上限。
+  ——
+  规则来源分级（勿混写）：
+  * 原文直引（source_url，摘录日 2026-09-02）：
+    - “Avoid symbols and special characters (for example, ~ ! * $ ? _ ~ { } # < > | * ; ^ ¬ ¦)”
+      —— 其中含 `#`，故话题标签规则为原文支持。
+    - “Avoid marketing material, promotions, or subjective comments that are not descriptive of
+      the product itself (for example, "Best Seller", "TikTok Exclusive", "20% off",
+      "free shipping", "NEW RELEASE", "low stock", "100% satisfaction guaranteed")”。
+    - “Add important information such as: Brand, Product type, Key features or characteristics,
+      Size or quantity, if applicable”。
+  * 本工具的保守推导（原文未逐字点名，勿对外表述为平台原文）：
+    - `tiktok.title.no_emoji`：官方原文只写 “symbols and special characters”，未逐字点名 emoji。
+      本工具把表情符号按「符号」从严处理，作为发布前拦截项。
+    - `tiktok.title.structure`：官方把品牌/品类/属性/规格写为 “Add important information such as”
+      的建议措辞，本工具据此做结构校验；仅当标题被促销语、表情或话题标签占据开头时判失败，
+      不替平台担保过审。
+reference_name: TikTok Shop — Product Detail Pages & Listing Quality Guidelines
+reference_url: https://seller-us.tiktok.com/university/essay?identity=1&knowledge_id=481891871868714&role=1
+rules:
+  - id: tiktok.title.min_length
+    kind: title_min_length
+    field: tiktok:title
+    severity: warn
+    params:
+      min: 25
+    description: 商品标题不少于 25 字符。
+  - id: tiktok.title.max_length
+    kind: title_max_length
+    field: tiktok:title
+    severity: warn
+    params:
+      max: 200
+    description: 商品标题不超过 200 字符。
+  # 原文直引：“Avoid symbols and special characters (… # …)”。`#` 在禁用符号表内，
+  # 因此话题标签在商品标题里是阻断项；标签本身移到独立的「社交文案」字段。
+  - id: tiktok.title.no_hashtags
+    kind: no_hashtags
+    field: tiktok:title
+    severity: blocking
+    params: {}
+    description: 商品标题不得包含 # 话题标签；话题标签应放在单独的社交文案字段。
+  - id: tiktok.title.prohibited_chars
+    kind: prohibited_chars
+    field: tiktok:title
+    severity: blocking
+    params:
+      chars: "~!*$?_{}<>|;^¬¦"
+    description: 商品标题不得包含符号与特殊字符 ~ ! * $ ? _ { } < > | ; ^ ¬ ¦。
+  # 原文直引：“Avoid marketing material, promotions, or subjective comments that are not
+  # descriptive of the product itself”。
+  - id: tiktok.title.no_promotional_language
+    kind: promotional_language
+    field: tiktok:title
+    severity: blocking
+    params: {}
+    description: 商品标题不得使用营销、促销或主观评价用语（含标题党式开头）。
+  # 本工具的保守推导，非原文逐字点名：emoji 按「符号」从严处理。
+  - id: tiktok.title.no_emoji
+    kind: no_emoji
+    field: tiktok:title
+    severity: blocking
+    params: {}
+    description: 商品标题不得包含表情符号（依据官方「避免符号与特殊字符」条款从严推导）。
+  # 本工具依据 “Add important information such as: Brand, Product type, Key features…, Size”
+  # 做的结构校验；官方措辞为建议，故为 warn。
+  - id: tiktok.title.structure
+    kind: title_structure
+    field: tiktok:title
+    severity: warn
+    params:
+      require_size: true
+    description: 商品标题应以品牌/品类开头，包含关键事实属性与规格/容量。
+  - id: tiktok.main_image.clean
+    kind: text
+    field: tiktok:main_image
+    severity: warn
+    params: {}
+    description: 商品卡主图偏白底、无加字；信息流广告封面是另一套素材，走投放条。

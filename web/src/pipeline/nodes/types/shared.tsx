@@ -146,7 +146,12 @@ export abstract class NodeDefinition<Node extends { type: string }> {
 		return null
 	}
 	abstract getOutputInfo(shape: NodeShape, node: Node, inputs: InfoValues): InfoValues
-	abstract execute(shape: NodeShape, node: Node, inputs: InputValues): Promise<ExecutionResult>
+	abstract execute(
+		shape: NodeShape,
+		node: Node,
+		inputs: InputValues,
+		signal?: AbortSignal
+	): Promise<ExecutionResult>
 	abstract Component: React.ComponentType<NodeComponentProps<Node>>
 }
 

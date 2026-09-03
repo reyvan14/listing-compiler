@@ -30,6 +30,7 @@ import { executionState, startExecution, stopExecution } from '../execution/exec
 import { guardRequiredInputs } from '../execution/requiredInputs';
 import { Port } from '../ports/Port';
 import { nodeShapeMigrations } from './nodeShapeMigrations';
+import { openListingInspector } from './types/listingInspector';
 import { getNodeOutputPortInfo, getNodePorts } from './nodePorts';
 import {
   getNodeDefinition,
@@ -51,18 +52,6 @@ declare module 'tldraw' {
 }
 
 export type NodeShape = TLShape<typeof NODE_TYPE>;
-
-function NodePorts({ shape }: { shape: NodeShape }) {
-  const editor = useEditor();
-  const ports = useValue('node ports', () => getNodeTypePorts(editor, shape), [shape, editor]);
-  return (
-    <>
-      {Object.values(ports).map(port => (
-        <Port key={port.id} shapeId={shape.id} portId={port.id} />
-      ))}
-    </>
-  );
-}
 
 function StationSkuPorts({ shape }: { shape: NodeShape }) {
   const editor = useEditor();
@@ -96,6 +85,20 @@ export class NodeShapeUtil extends ShapeUtil<NodeShape> {
 
   override canEdit(_shape: NodeShape) {
     return false;
+  }
+  /**
+   * Double-click a listing result to open the detail inspector.
+   *
+   * This lives on the shape util rather than on the card's DOM: the card body
+   * has pointer-events disabled so the node stays draggable, so a DOM dblclick
+   * never reaches it. tldraw hit-tests the canvas and routes here instead.
+   * Opening the inspector does not touch the shape, so nothing resizes.
+   */
+  override onDoubleClick(shape: NodeShape) {
+    const node = shape.props.node;
+    if (node.type !== 'listing_result' || node.platform === 'ad') return;
+    openListingInspector(this.editor, node.platform, shape.id);
+    return;
   }
   override canResize(shape: NodeShape) {
     return getNodeDefinition(this.editor, shape.props.node).canResizeNode;
@@ -298,7 +301,6 @@ function NodeShapeComponent({ shape }: { shape: NodeShape }) {
     <HTMLContainer
       className={classNames('NodeShape', {
         NodeShape_executing: isExecuting,
-        NodeShape_capture: shape.props.node.type === 'capture',
         NodeShape_chromeless: !nodeDefinition.showHeading && !nodeDefinition.showFooter,
         NodeShape_image_generation: shape.props.node.type === 'image_generation',
         NodeShape_video_generation: shape.props.node.type === 'video_generation',
@@ -389,7 +391,6 @@ function NodeShapeComponent({ shape }: { shape: NodeShape }) {
         </div>
       )}
 
-      {nodeDefinition.type === 'message' && <NodePorts shape={shape} />}
       {shape.props.node.type === 'sku_listing' && <StationSkuPorts shape={shape} />}
     </HTMLContainer>
   );

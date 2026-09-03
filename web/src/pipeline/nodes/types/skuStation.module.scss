@@ -1,4 +1,5 @@
 .body {
+  position: relative; /* anchor for the absolutely-positioned status banner */
   padding: 0 12px 12px;
   color: #fffdfa;
   font-family: 'PingFang SC', Inter, sans-serif;
@@ -344,4 +345,278 @@
 .btnGhost:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* ---- P0 form validation + P1 readability ---- */
+
+.fieldError {
+  display: block;
+  margin-top: 3px;
+  color: #ff9c7a;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.field input[aria-invalid='true'],
+.field textarea[aria-invalid='true'] {
+  border-color: #ff7649;
+}
+
+.runError {
+  margin: 6px 0 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(255, 118, 73, 0.14);
+  border: 1px solid rgba(255, 118, 73, 0.4);
+
+  p {
+    margin: 0 0 6px;
+    color: #ff9c7a;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+}
+
+.runErrorActions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Result cards: larger, more readable text now that lanes are horizontal. */
+.titleBlock {
+  small,
+  dt {
+    font-size: 12px;
+  }
+
+  p,
+  dd {
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-line-clamp: 4;
+  }
+
+  button {
+    font-size: 12px;
+    padding: 2px 8px;
+  }
+}
+
+.fields dd {
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-line-clamp: 3;
+}
+
+.reason {
+  font-size: 12px;
+}
+
+.checks {
+  font-size: 12.5px;
+
+  small {
+    font-size: 11.5px;
+  }
+}
+
+/* 迁移状态横幅（结果卡顶部）— 琥珀=过期/候选，绿=已应用，红仅用于阻断项。
+   绝对定位覆盖在卡片顶部：状态变化不改变卡片高度，因此未受影响的卡片不会
+   因为上方卡片长高而被挤动，位置逐像素保持不变。 */
+.migBanner {
+  position: absolute;
+  top: 26px; /* below the header row, over the top of the product image */
+  left: 12px;
+  right: 12px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: rgba(255, 194, 73, 0.18);
+  color: #ffce7a;
+
+  small {
+    font-weight: 400;
+    font-size: 10.5px;
+    color: #d9cfae;
+  }
+
+  &[data-status='applied'] {
+    background: rgba(75, 191, 135, 0.18);
+    color: #7ee0b0;
+    small {
+      color: #bfe6d1;
+    }
+  }
+  &[data-status='rolled-back'] {
+    background: rgba(255, 255, 255, 0.08);
+    color: #cfc9bd;
+  }
+  &[data-status='needs-human-review'] {
+    background: rgba(255, 118, 73, 0.16);
+    color: #ff9c7a;
+  }
+}
+
+/* 阻断违规闸门：红色只用于阻断项 */
+.blockGate {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 8px 0 6px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: rgba(255, 118, 73, 0.14);
+  border-left: 3px solid #ff7649;
+
+  b {
+    font-size: 12px;
+    color: #ff9c7a;
+  }
+  small {
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: #d9b9ae;
+  }
+}
+
+.suggestTitle {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #7ee0b0;
+  word-break: break-word;
+}
+
+.blockTag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-style: normal;
+  font-size: 10px;
+  background: rgba(255, 118, 73, 0.22);
+  color: #ff9c7a;
+}
+
+.checks li[data-blocking='1'] {
+  background: rgba(255, 118, 73, 0.07);
+  border-radius: 4px;
+}
+
+.evidence {
+  color: #d9b9ae;
+  word-break: break-word;
+}
+
+.suggestion {
+  color: #7ee0b0;
+  word-break: break-word;
+}
+
+/* ---- 紧凑摘要卡（默认态）------------------------------------------------
+   高度预算与 skuStation.ts 的 COMPACT_ROWS 一一对应，改一处要改两处。 */
+.compactCard {
+  .art {
+    margin-bottom: 8px;
+    img {
+      height: 64px;
+    }
+  }
+
+  .titleBlock {
+    margin-bottom: 4px;
+
+    p {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2; /* 标题固定夹到 2 行 */
+      line-clamp: 2;
+      overflow: hidden;
+      font-size: 13px;
+      line-height: 17px;
+      max-height: 34px;
+    }
+  }
+
+  /* 紧凑态字段：一行 "标签 值"，值夹到 1 行 */
+  .fields > div {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    margin-bottom: 0;
+    height: 18px;
+    overflow: hidden;
+
+    dt {
+      flex: 0 0 auto;
+      max-width: 92px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    dd {
+      flex: 1 1 auto;
+      margin: 0;
+      -webkit-line-clamp: 1;
+      line-clamp: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 12px;
+      line-height: 18px;
+    }
+  }
+}
+
+.checkSummary {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 20px;
+  color: #a8a49b;
+}
+
+/* 紧凑态的阻断提示：一行红条，详情在展开态 */
+.blockBadge {
+  margin: 6px 0 0;
+  padding: 5px 8px;
+  border-radius: 5px;
+  border-left: 3px solid #ff7649;
+  background: rgba(255, 118, 73, 0.14);
+  color: #ff9c7a;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 卡片头行：角色 / 状态 + 详情开关（钉在右上，随卡片高度不变） */
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 26px;
+
+  .role {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  button {
+    flex: 0 0 auto;
+    font-size: 11.5px;
+    padding: 2px 9px;
+    height: 22px;
+  }
 }

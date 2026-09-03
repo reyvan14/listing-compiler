@@ -269,17 +269,10 @@ export class ConnectionShapeUtil extends ShapeUtil<ConnectionShape> {
     const draggingTerminal = handle.id as 'start' | 'end';
 
     const bindings = getConnectionBindings(this.editor, connection);
-    const endBinding = bindings.end;
-    const sourceShape = endBinding ? this.editor.getShape(endBinding.toId) : null;
     if (bindings[draggingTerminal]) {
       return;
     }
-    /**
-     * 从 chatBlot start 拉起连接线，连接到 chatBlot
-     */
-    const isToMessageNode =
-      draggingTerminal === 'start' && sourceShape?.props?.node?.type === 'message';
-    if ((isCreatingShape && draggingTerminal === 'end') || isToMessageNode) {
+    if (isCreatingShape && draggingTerminal === 'end') {
       this.editor.selectNone();
       onCanvasNodePickerState.set(this.editor, {
         connectionShapeId: connection.id,

@@ -574,3 +574,409 @@
     animation: none;
   }
 }
+
+/* ---- P0/P1 usability additions ---- */
+
+.sourceBadge {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.sourceBadge[data-tone='ok'] {
+  color: #7ddb8a;
+  background: rgba(76, 175, 80, 0.16);
+  border-color: rgba(76, 175, 80, 0.4);
+}
+
+.sourceBadge[data-tone='warn'] {
+  color: #ffce7a;
+  background: rgba(255, 194, 73, 0.16);
+  border-color: rgba(255, 194, 73, 0.45);
+}
+
+.sourceBadge[data-tone='danger'] {
+  color: #ff9c7a;
+  background: rgba(255, 118, 73, 0.18);
+  border-color: rgba(255, 118, 73, 0.5);
+}
+
+.sampleBanner {
+  position: relative;
+  z-index: 21;
+  margin: 0;
+  padding: 10px 14px;
+  background: rgba(220, 53, 47, 0.22);
+  border-top: 2px solid #dc352f;
+  border-bottom: 2px solid #dc352f;
+  color: #ffd7cf;
+  font-size: 13px;
+  line-height: 1.5;
+
+  strong {
+    color: #ffb3a6;
+  }
+}
+
+.rulesNote {
+  margin: 4px 0 10px;
+  color: #a8a49b;
+  font-size: 12px;
+
+  code {
+    color: #e1ded8;
+  }
+}
+
+.rulesError {
+  margin: 4px 0 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(255, 118, 73, 0.16);
+  color: #ff9c7a;
+  font-size: 12px;
+}
+
+.drawer a {
+  color: #26bbff;
+  text-decoration: underline;
+}
+
+/* ---- 规则变更 / 迁移 面板 ---------------------------------------------- */
+.migrationDrawer aside {
+  width: min(760px, 100%);
+}
+
+.migSection {
+  margin: 14px 0;
+  padding-top: 12px;
+  border-top: 1px solid #352f25;
+}
+.migSection:first-of-type {
+  border-top: 0;
+}
+
+.migActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.migDiff {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: #e1ded8;
+
+  li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+  li[data-kind='changed'] {
+    border-left: 3px solid #ffc249;
+  }
+  li[data-kind='added'] {
+    border-left: 3px solid #ffc249;
+  }
+  li[data-kind='removed'] {
+    border-left: 3px solid #ff7649;
+  }
+  b {
+    color: #ffce7a;
+    margin-right: 4px;
+  }
+  code {
+    color: #9fd0ff;
+  }
+}
+
+.migList {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    margin-bottom: 6px;
+  }
+  li[data-tone='warn'] .migRow {
+    border-left: 3px solid #ffc249;
+  }
+  li[data-tone='ok'] .migRow {
+    border-left: 3px solid #4bbf87;
+    opacity: 0.82;
+  }
+}
+
+.migRow {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #e1ded8;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.07);
+  }
+}
+
+.migRowHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+
+  b {
+    color: #f4f1ea;
+  }
+  em {
+    font-style: normal;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.09);
+    color: #cfc9bd;
+  }
+  em[data-cause='policy'] {
+    background: rgba(38, 187, 255, 0.16);
+    color: #7fd2ff;
+  }
+  em[data-cause='both'] {
+    background: rgba(255, 194, 73, 0.18);
+    color: #ffce7a;
+  }
+}
+
+.migStale {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 194, 73, 0.2);
+  color: #ffce7a;
+}
+.migKeep {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(75, 191, 135, 0.18);
+  color: #7ee0b0;
+}
+
+.migReason {
+  font-size: 11.5px;
+  color: #b7b1a4;
+  line-height: 1.45;
+}
+
+.migPatches {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    border-left: 3px solid #4bbf87;
+  }
+  li[data-review='1'] {
+    border-left-color: #ff7649;
+    background: rgba(255, 118, 73, 0.08);
+  }
+}
+
+.migPatchHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #f4f1ea;
+  cursor: pointer;
+
+  code {
+    color: #9fd0ff;
+  }
+  em {
+    font-style: normal;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 999px;
+  }
+}
+
+.migPatchBody {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+  padding-left: 22px;
+  font-size: 12px;
+}
+.migPrev {
+  color: #b7b1a4;
+  text-decoration: line-through;
+}
+.migNext {
+  color: #7ee0b0;
+}
+.migReview {
+  background: rgba(255, 118, 73, 0.2);
+  color: #ff9c7a;
+}
+.migFail {
+  color: #ff9c7a;
+  font-size: 11.5px;
+}
+
+/* ---- 批量迁移中心 ------------------------------------------------------ */
+.statRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.stat {
+  flex: 1 1 84px;
+  min-width: 84px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 3px solid #4a4335;
+
+  b {
+    display: block;
+    font-size: 18px;
+    line-height: 1.2;
+    color: #f4f1ea;
+  }
+  span {
+    font-size: 11px;
+    color: #a8a49b;
+  }
+
+  &[data-tone='ok'] {
+    border-left-color: #4bbf87;
+    b { color: #7ee0b0; }
+  }
+  &[data-tone='warn'] {
+    border-left-color: #ffc249;
+    b { color: #ffce7a; }
+  }
+  &[data-tone='danger'] {
+    border-left-color: #ff7649;
+    b { color: #ff9c7a; }
+  }
+}
+
+/* 矩阵表：横向滚动限制在表格内，面板本身不出现横向滚动条 */
+.matrixScroll {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid #352f25;
+  border-radius: 6px;
+}
+
+.matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #221f1a;
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid #352f25;
+    color: #a8a49b;
+    font-weight: 600;
+  }
+
+  td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #2b261e;
+    color: #e1ded8;
+    vertical-align: top;
+  }
+
+  tr[data-status='unaffected'] td {
+    opacity: 0.62;
+  }
+
+  code {
+    color: #9fd0ff;
+  }
+}
+
+.matrixReason {
+  max-width: 220px;
+  overflow-wrap: anywhere;
+  color: #b7b1a4;
+}
+
+.matrixDiff {
+  max-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+
+.statusPill {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.08);
+  color: #cfc9bd;
+
+  &[data-tone='ok'] {
+    background: rgba(75, 191, 135, 0.18);
+    color: #7ee0b0;
+  }
+  &[data-tone='warn'] {
+    background: rgba(255, 194, 73, 0.2);
+    color: #ffce7a;
+  }
+  &[data-tone='danger'] {
+    background: rgba(255, 118, 73, 0.2);
+    color: #ff9c7a;
+  }
+}
+
+.migActions select,
+.migActions input[type='search'] {
+  padding: 4px 8px;
+  border: 1px solid #4a4335;
+  border-radius: 5px;
+  background: #1a1814;
+  color: #e1ded8;
+  font-size: 12px;
+}
+
+/* 批量迁移中心必须盖住 tldraw 画布控件（工具栏 / 快捷操作）。
+   .canvas 没有 z-index，不产生层叠上下文，因此 tldraw 内部很高的 z-index 会直接
+   与本抽屉在根层叠上下文里竞争——小数值会被工具栏拦截 pointer events。
+   与 listingInspector 采用同一数值，二者不会同时打开。 */
+.portfolioDrawer {
+  z-index: 2147483646;
+}

@@ -1,5 +1,17 @@
-import { GENERATE_STEPS } from '@/station/data'
-import { announceListingSource, fetchListingDrafts } from '@/station/listingApi'
+import { useEffect, useRef, useState } from 'react'
+import { ApiError, toSafeMessage } from '@/station/apiClient'
+import { buildSkuArtifacts } from '@/station/skuArtifacts'
+import {
+  announceListingSource,
+  fetchListingDrafts,
+  localSampleDrafts,
+} from '@/station/listingApi'
+import {
+  fieldError,
+  firstInvalidField,
+  validateSkuForm,
+  type SkuFieldError,
+} from '@/station/skuValidation'
 import { T, useEditor, useValue } from 'tldraw'
 import { NODE_HEADER_HEIGHT_PX } from '../../constants'
 import { executionState, startExecution, stopExecution } from '../../execution/executionState'
@@ -8,24 +20,25 @@ import { NodeShape } from '../NodeShapeUtil'
 import {
   defaultSkuNode,
   fillSkuDemo,
+  focusSkuInput,
   LANES,
   selectedPlatforms,
   SKU_NODE_WIDTH,
   skuBodyHeightPx,
   skuPointsRows,
+  skuRunStatusText,
   spawnPlatformResults,
-  type SkuListingNode,
 } from './skuStation'
 import styles from './skuStation.module.scss'
 import {
   ExecutionResult,
   InfoValues,
+  InputValues,
   NodeComponentProps,
   NodeDefinition,
   updateNode,
 } from './shared'
 
-export type { SkuListingNode }
 export const SkuListingNode = T.object({
   type: T.literal('sku_listing'),
   productName: T.string,
@@ -37,8 +50,17 @@ export const SkuListingNode = T.object({
   assetMode: T.literalEnum('compliant', 'promo'),
   spawnedIds: T.arrayOf(T.string),
   adSpawnedId: T.string.nullable(),
-  stepIndex: T.number,
+  // safe Chinese message from the last run that could not reach / use the backend
+  lastError: T.string,
+  // Downstream artifact package from the last successful run: a textual video
+  // brief assembled from the generated drafts, plus the SKU's real images.
+  // Consumed by a connected 视频生成 node (see videoInputs.ts).
+  videoBrief: T.string,
+  imageAssets: T.arrayOf(T.string),
 })
+// Structurally identical to the hand-written type in ./skuStation; derived here
+// from the validator so the shape and its schema can't drift.
+export type SkuListingNode = T.TypeOf<typeof SkuListingNode>
 
 function GoldMark() {
   return (
@@ -94,34 +116,69 @@ export class SkuListingNodeDefinition extends NodeDefinition<SkuListingNode> {
     return ports
   }
 
-  async execute(shape: NodeShape, node: SkuListingNode): Promise<ExecutionResult> {
-    fillSkuDemo(this.editor, shape)
-    const filled = (this.editor.getShape(shape.id) as NodeShape | undefined) ?? shape
-    const sku = filled.props.node as SkuListingNode
-    const pending = fetchListingDrafts({
-      productName: sku.productName,
-      points: sku.points,
-      platforms: selectedPlatforms(sku),
-      assetMode: sku.assetMode,
-      uploads: sku.uploads,
-    })
-    let stepIndex = 0
-    updateNode<SkuListingNode>(this.editor, shape, n => ({ ...n, stepIndex: 0 }), false)
-    const tick = window.setInterval(() => {
-      stepIndex = Math.min(stepIndex + 1, GENERATE_STEPS.length - 1)
-      updateNode<SkuListingNode>(this.editor, shape, n => ({ ...n, stepIndex }), false)
-    }, 1800)
+  async execute(
+    shape: NodeShape,
+    node: SkuListingNode,
+    _inputs: InputValues,
+    signal?: AbortSignal,
+  ): Promise<ExecutionResult> {
+    // No demo data is injected here. The component validates the form before
+    // it ever calls startExecution, so the values below are the user's own.
+    updateNode<SkuListingNode>(this.editor, shape, n => ({ ...n, lastError: '' }), false)
+    const live0 = (this.editor.getShape(shape.id) as NodeShape | undefined) ?? shape
+    const sku = live0.props.node as SkuListingNode
+
+    // No phase ticker: the backend reports no stage progress, so the node only
+    // shows the real elapsed time and that it is waiting for the model.
     try {
-      const { drafts, source } = await pending
+      const { drafts, source } = await fetchListingDrafts(
+        {
+          productName: sku.productName,
+          points: sku.points,
+          platforms: selectedPlatforms(sku),
+          assetMode: sku.assetMode,
+          uploads: sku.uploads,
+        },
+        { timeoutMs: 60_000, signal },
+      )
+      // A cancelled or superseded run must never create cards or move the badge.
+      if (signal?.aborted) return { output: '' }
       spawnPlatformResults(this.editor, shape, drafts)
       announceListingSource(source)
-    } finally {
-      window.clearInterval(tick)
+      // Persist the downstream artifact package for connected media nodes.
+      const artifacts = buildSkuArtifacts({
+        productName: sku.productName,
+        points: sku.points,
+        uploads: sku.uploads,
+        drafts,
+      })
+      updateNode<SkuListingNode>(
+        this.editor,
+        shape,
+        n => ({ ...n, videoBrief: artifacts.brief, imageAssets: artifacts.images }),
+        false,
+      )
+    } catch (err) {
+      const cancelled =
+        signal?.aborted || (err instanceof ApiError && err.category === 'aborted')
+      if (!cancelled) {
+        // Do not spawn results, do not mutate the form. Surface a safe message;
+        // the component then offers Retry / Use-local-sample.
+        updateNode<SkuListingNode>(
+          this.editor,
+          shape,
+          n => ({ ...n, lastError: toSafeMessage(err) }),
+          false,
+        )
+      }
     }
+
     const live = (this.editor.getShape(shape.id) as NodeShape | undefined) ?? shape
     const current = live.props.node as SkuListingNode
     const name = current.productName || node.productName
-    const result: ExecutionResult = { output: name }
+    // The generic output carries the generated brief so downstream text
+    // consumers get the real artifact, not just the product name.
+    const result: ExecutionResult = { output: current.videoBrief || name }
     for (const id of selectedPlatforms(current)) result[`output_${id}`] = name
     return result
   }
@@ -129,7 +186,7 @@ export class SkuListingNodeDefinition extends NodeDefinition<SkuListingNode> {
   getOutputInfo(shape: NodeShape, node: SkuListingNode): InfoValues {
     const info: InfoValues = {
       output: {
-        value: '',
+        value: node.videoBrief || node.productName,
         isOutOfDate: shape.props.isOutOfDate,
         dataType: 'text',
       },
@@ -164,8 +221,34 @@ function SkuListingNodeComponent({ shape, node }: NodeComponentProps<SkuListingN
     [editor],
   )
 
+  const [errors, setErrors] = useState<SkuFieldError[]>([])
+  const [elapsed, setElapsed] = useState(0)
+  const nameRef = useRef<HTMLInputElement>(null)
+  const pointsRef = useRef<HTMLTextAreaElement>(null)
+  const chipsRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isExecuting) {
+      setElapsed(0)
+      return
+    }
+    setElapsed(0)
+    const started = Date.now()
+    const id = window.setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000)
+    return () => window.clearInterval(id)
+  }, [isExecuting])
+
+  // When a run error appears the node grows; make sure the recovery actions
+  // (Retry / Use-local-sample) are brought fully into view.
+  useEffect(() => {
+    if (node.lastError) requestAnimationFrame(() => focusSkuInput(editor))
+  }, [node.lastError, editor])
+
   const patch = (update: Partial<SkuListingNode>) =>
     updateNode<SkuListingNode>(editor, shape, n => ({ ...n, ...update }), false)
+
+  const clearFieldError = (field: SkuFieldError['field']) =>
+    setErrors(prev => (prev.some(e => e.field === field) ? prev.filter(e => e.field !== field) : prev))
 
   const onFiles = (files: FileList | null) => {
     if (!files?.length) return
@@ -184,21 +267,66 @@ function SkuListingNodeComponent({ shape, node }: NodeComponentProps<SkuListingN
       })
   }
 
+  const focusField = (field: SkuFieldError['field'] | null) => {
+    if (field === 'productName') nameRef.current?.focus()
+    else if (field === 'points') pointsRef.current?.focus()
+    else if (field === 'platforms') chipsRef.current?.querySelector('input')?.focus()
+  }
+
   const generate = () => {
     if (isGraphRunning) {
       stopExecution(editor)
       return
     }
-    if (selectedPlatforms(node).length === 0) return
-    fillSkuDemo(editor, shape)
+    const found = validateSkuForm({
+      productName: node.productName,
+      points: node.points,
+      platforms: selectedPlatforms(node),
+    })
+    if (found.length > 0) {
+      setErrors(found)
+      focusField(firstInvalidField(found))
+      return // never mutate the form on invalid submit
+    }
+    setErrors([])
+    patch({ lastError: '' })
     startExecution(editor, new Set([shape.id]))
   }
 
+  const retry = () => {
+    patch({ lastError: '' })
+    startExecution(editor, new Set([shape.id]))
+  }
+
+  const useLocalSample = () => {
+    const { drafts, source } = localSampleDrafts({
+      productName: node.productName,
+      points: node.points,
+      platforms: selectedPlatforms(node),
+      assetMode: node.assetMode,
+      uploads: node.uploads,
+    })
+    spawnPlatformResults(editor, shape, drafts)
+    announceListingSource(source)
+    // Downstream media nodes read the same artifact package either way; here it
+    // is assembled from the local sample drafts the user explicitly asked for.
+    const artifacts = buildSkuArtifacts({
+      productName: node.productName,
+      points: node.points,
+      uploads: node.uploads,
+      drafts,
+    })
+    patch({ lastError: '', videoBrief: artifacts.brief, imageAssets: artifacts.images })
+  }
+
   const pointRows = skuPointsRows(node)
+  const nameErr = fieldError(errors, 'productName')
+  const pointsErr = fieldError(errors, 'points')
+  const platformsErr = fieldError(errors, 'platforms')
 
   return (
     <div className={styles.body}>
-      <p className={styles.role}>SKU 输入 · 点一下，三台按节点长出来</p>
+      <p className={styles.role}>SKU 输入 · 填好品名、卖点、平台后点「生成」</p>
       <label className={styles.drop} htmlFor={`sku-files-${shape.id}`} onPointerDown={keepOnControl}>
         <input
           id={`sku-files-${shape.id}`}
@@ -210,8 +338,8 @@ function SkuListingNodeComponent({ shape, node }: NodeComponentProps<SkuListingN
         />
         {node.uploads.length === 0 ? (
           <span>
-            上传产品图
-            <small>演示：折叠硅胶水杯 350ml</small>
+            上传产品图（可选）
+            <small>不影响文字草稿生成</small>
           </span>
         ) : (
           <span className={styles.thumbs}>
@@ -224,52 +352,92 @@ function SkuListingNodeComponent({ shape, node }: NodeComponentProps<SkuListingN
       <label className={styles.field} onPointerDown={keepOnControl}>
         品名
         <input
+          ref={nameRef}
           value={node.productName}
           disabled={isExecuting}
           placeholder="折叠硅胶水杯 350ml"
-          onChange={e => patch({ productName: e.target.value })}
+          aria-invalid={nameErr ? true : undefined}
+          onChange={e => {
+            patch({ productName: e.target.value })
+            clearFieldError('productName')
+          }}
           onFocus={() => editor.setSelectedShapes([shape.id])}
         />
+        {nameErr && <span className={styles.fieldError}>{nameErr}</span>}
       </label>
       <label className={styles.field} onPointerDown={keepOnControl}>
         卖点
         <textarea
+          ref={pointsRef}
           rows={pointRows}
           value={node.points}
           disabled={isExecuting}
           placeholder={'折叠到 4cm\n食品级硅胶\n防漏盖 350ml\nBPA-Free'}
-          onChange={e => patch({ points: e.target.value })}
+          aria-invalid={pointsErr ? true : undefined}
+          onChange={e => {
+            patch({ points: e.target.value })
+            clearFieldError('points')
+          }}
           onFocus={() => editor.setSelectedShapes([shape.id])}
           onWheel={e => e.stopPropagation()}
         />
+        {pointsErr && <span className={styles.fieldError}>{pointsErr}</span>}
       </label>
-      <div className={styles.chips}>
+      <div className={styles.chips} ref={chipsRef}>
         {LANES.map(lane => (
           <label key={lane.id} className={styles.chip} onPointerDown={keepOnControl}>
             <input
               type="checkbox"
               checked={node[lane.id]}
               disabled={isExecuting}
-              onChange={e => patch({ [lane.id]: e.target.checked })}
+              onChange={e => {
+                patch({ [lane.id]: e.target.checked })
+                clearFieldError('platforms')
+              }}
             />
             {lane.name}
           </label>
         ))}
       </div>
+      {platformsErr && <span className={styles.fieldError}>{platformsErr}</span>}
+
       <p className={styles.stepNow}>
         {isExecuting
-          ? GENERATE_STEPS[node.stepIndex]
+          ? skuRunStatusText(elapsed)
           : node.assetMode === 'promo'
             ? '带字竖版不能当 Amazon / TikTok Shop 商品主图。'
-            : '\u00a0'}
+            : ' '}
       </p>
+
+      {!isExecuting && node.lastError && (
+        <div className={styles.runError} role="alert" onPointerDown={keepOnControl}>
+          <p>{node.lastError}</p>
+          <div className={styles.runErrorActions}>
+            <button type="button" className={styles.btnPrimary} id="station-retry" onClick={retry}>
+              重试
+            </button>
+            <button
+              type="button"
+              className={styles.btnGhost}
+              id="station-use-local-sample"
+              onClick={useLocalSample}
+            >
+              使用本地示例数据
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className={styles.actions} onPointerDown={keepOnControl}>
         <button
           type="button"
           className={styles.btnGhost}
           id="station-fill"
           disabled={isExecuting}
-          onClick={() => fillSkuDemo(editor, shape)}
+          onClick={() => {
+            fillSkuDemo(editor, shape)
+            setErrors([])
+          }}
         >
           填入演示
         </button>
@@ -277,10 +445,9 @@ function SkuListingNodeComponent({ shape, node }: NodeComponentProps<SkuListingN
           type="button"
           className={styles.btnPrimary}
           id="station-generate"
-          disabled={isExecuting && !isGraphRunning}
           onClick={generate}
         >
-          {isExecuting ? '生成中…' : '生成'}
+          {isExecuting ? '取消' : '生成'}
         </button>
       </div>
     </div>

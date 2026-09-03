@@ -3,8 +3,21 @@ dist/
 .DS_Store
 __pycache__/
 *.pyc
+.pytest_cache/
+.venv/
+venv/
+tsconfig.tsbuildinfo
 .env
 .env.local
 .env.*
 !.env.example
 DEMO_PUBLIC.txt
+
+# test / build artefacts (generated, never committed)
+test-results/
+playwright-report/
+.last-run.json
+web/e2e/screenshots/
+
+# evidence blobs + ledger (runtime state, never committed)
+api/evidence_store/

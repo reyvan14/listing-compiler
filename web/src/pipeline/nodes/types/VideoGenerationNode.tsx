@@ -1,8 +1,8 @@
 import { fetchMediaVideo } from '@/station/mediaApi'
+import { toSafeMessage } from '@/station/apiClient'
 import { T, useEditor, useValue } from 'tldraw'
 import { VideoGenerateIcon } from '../../components/icons/VideoGenerateIcon'
 import { executionState, startExecution, stopExecution } from '../../execution/executionState'
-import { classifyPortInputs } from '../nodePorts'
 import { ShapePort } from '../../ports/Port'
 import { NodeShape } from '../NodeShapeUtil'
 import {
@@ -22,6 +22,7 @@ import {
   NodeDefinition,
   updateNode,
 } from './shared'
+import { collectVideoUpstream, composeVideoPrompt, videoUpstreamSummary } from './videoInputs'
 
 const VideoCropRect = T.object({
   x: T.number,
@@ -102,9 +103,23 @@ export class VideoGenerationNodeDefinition extends NodeDefinition<VideoGeneratio
   }
 
   async execute(shape: NodeShape, node: VideoGenerationNode): Promise<ExecutionResult> {
-    const portInputs = classifyPortInputs(this.editor, shape, 'input')
-    const prompt = (portInputs.texts[0] || node.prompt || '').trim()
-    if (!prompt) {
+    // Upstream artifacts are the real inputs here: SKU briefs and image-node
+    // prompts become prompt context, the first usable image becomes the first
+    // frame of an image-to-video request.
+    //
+    // Resolved before validation, because a usable first frame is a complete
+    // image-to-video request on its own: only a request with neither a prompt
+    // nor a frame has nothing to send.
+    const upstream = collectVideoUpstream(this.editor, shape)
+    // Only what is connected right now: a first frame left over from an
+    // earlier run must not silently be reused after a disconnect.
+    const firstFrameUrl = upstream.firstFrameUrl
+    const prompt = composeVideoPrompt({
+      brief: upstream.brief,
+      texts: upstream.texts,
+      userPrompt: node.prompt || '',
+    })
+    if (!prompt && !firstFrameUrl) {
       updateNode<VideoGenerationNode>(this.editor, shape, n => ({
         ...n,
         lastResult: '请先填写提示词',
@@ -117,21 +132,25 @@ export class VideoGenerationNodeDefinition extends NodeDefinition<VideoGeneratio
         aspectRatio: node.aspectRatio,
         duration: node.duration,
         resolution: node.resolution,
+        firstFrameUrl,
       })
+      const detail = ['已生成 1 条视频']
+      if (upstream.brief || upstream.texts.some(t => t.trim())) detail.push('已用上游文本素材')
+      if (firstFrameUrl) detail.push('首帧来自上游图片')
       updateNode<VideoGenerationNode>(this.editor, shape, n => ({
         ...n,
         videoUrls: [url],
         posterUrls: poster ? [poster] : [],
-        lastResult: '已生成 1 条视频',
+        firstFrameUrl,
+        lastResult: detail.join(' · '),
       }))
       return { output: url }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '生成失败'
       updateNode<VideoGenerationNode>(this.editor, shape, n => ({
         ...n,
         videoUrls: [],
         posterUrls: [],
-        lastResult: `生成失败：${msg}`,
+        lastResult: toSafeMessage(err),
       }))
       return { output: null }
     }
@@ -176,6 +195,13 @@ function VideoGenerationNodeComponent({ shape, node }: NodeComponentProps<VideoG
     updateNode<VideoGenerationNode>(editor, shape, n => ({ ...n, ...update }), false)
 
   const preview = node.videoUrls[0]
+  // Derived from the live connections, so the line can never claim an upstream
+  // artifact that is not actually wired up.
+  const upstreamSummary = useValue(
+    'video upstream',
+    () => videoUpstreamSummary(collectVideoUpstream(editor, shape.id)),
+    [editor, shape.id],
+  )
   const generate = () => {
     if (isGraphRunning) {
       stopExecution(editor)
@@ -196,12 +222,21 @@ function VideoGenerationNodeComponent({ shape, node }: NodeComponentProps<VideoG
             playsInline
             onPointerDown={keepOnControl}
           />
-        ) : isExecuting ? (
-          <div className="ImageGenNode-status">生成中…</div>
-        ) : node.lastResult ? (
-          <div className="ImageGenNode-status">{node.lastResult}</div>
         ) : (
-          <VideoPlaceholderIcon />
+          <div className="ImageGenNode-statusStack">
+            {isExecuting ? (
+              <div className="ImageGenNode-status">生成中…</div>
+            ) : node.lastResult ? (
+              <div className="ImageGenNode-status">{node.lastResult}</div>
+            ) : (
+              <VideoPlaceholderIcon />
+            )}
+            {upstreamSummary && (
+              <div className="ImageGenNode-upstream" data-testid="video-upstream-summary">
+                {upstreamSummary}
+              </div>
+            )}
+          </div>
         )}
       </div>
       {!node.isResultNode && (

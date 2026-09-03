@@ -1,0 +1,53 @@
+# Bundled policy snapshot. Not scraped at runtime — this is a dated excerpt of a
+# public policy page, kept in the repo so the demo is reproducible offline.
+platform: amazon
+market: US
+version: amazon-us-2025.01.21
+status: current
+effective_date: "2025-01-21"
+excerpt_date: "2026-09-02"
+source_name: Amazon Seller Forums — 2025 商品标题政策更新公告
+source_url: https://sellercentral.amazon.com/seller-forums/discussions/t/b2b15728-0d43-453e-974f-59eb63f73059/
+reference_name: Amazon 官方产品拍摄要求 (sell.amazon.com)
+reference_url: https://sell.amazon.com/blog/product-photos
+summary: >-
+  商品主图需纯白背景（RGB 255,255,255），主体占据画面 85% 或以上，不得叠加文字、logo、边框或水印；
+  多数类目标题不得超过 200 字符；不得包含 ! $ ? _ { } ^ ¬ ¦（品牌名场景除外）；
+  同一非豁免词不得出现超过两次。
+display:
+  name: Amazon
+  role: 货架
+  image_label: 白底主图 1:1
+  image_summary: 纯白 RGB 255,255,255 · 主体约 85% · 主图禁加字
+notes: >-
+  标题规则来自 Amazon 官方公告，2025-01-21 生效。200 字符是多数类目的通用上限；
+  特定类目限制仍应以 Seller Central 对应类目要求为准。
+rules:
+  - id: amazon.title.max_length
+    kind: title_max_length
+    field: amazon:title
+    severity: blocking
+    params:
+      max: 200
+    description: 多数类目标题不得超过 200 字符（含空格）。
+  - id: amazon.title.prohibited_chars
+    kind: prohibited_chars
+    field: amazon:title
+    severity: blocking
+    params:
+      chars: "!$?_{}^¬¦"
+    description: 标题不得包含特殊字符 ! $ ? _ { } ^ ¬ ¦，品牌名中的合法字符除外。
+  - id: amazon.title.repeated_word_limit
+    kind: repeated_word_limit
+    field: amazon:title
+    severity: blocking
+    params:
+      limit: 2
+      exempt: ["a", "an", "the", "and", "or", "for", "with", "in", "on", "of", "to", "by"]
+    description: 同一非豁免词在标题中出现不得超过两次。
+  - id: amazon.main_image.white_background
+    kind: image_white_background
+    field: amazon:main_image
+    severity: warn
+    params: {}
+    description: 主图纯白背景（RGB 255,255,255），主体占比 ≥ 85%，不叠加文字 / logo / 边框 / 水印。

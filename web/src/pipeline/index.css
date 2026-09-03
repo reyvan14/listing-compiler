@@ -217,12 +217,14 @@ body {
 /* ---- 媒体生成节点（图片/视频）: 节点框边框 + header 分隔线 ---- */
 /* 图片节点：维持原 #A8A49B 描边（#40 重做了图片节点，本轮不改其样式）。 */
 .NodeShape_image_generation {
+  height: 100%;
   box-shadow:
     var(--node-shadow-border),
     inset 0 0 0 1px #a8a49b;
 }
 /* 视频节点：默认素描边 #534F46，选中高亮 #A8A49B（不画 tldraw 蓝框，靠此描边作选中反馈）。 */
 .NodeShape_video_generation {
+  height: 100%;
   box-shadow:
     var(--node-shadow-border),
     inset 0 0 0 1px #534f46;
@@ -2623,6 +2625,7 @@ body {
  * 置为 pointer-events:all，曾把本容器一并置 all 造成遮挡；已在那条规则用 :not(.NodeShape-sidePorts) 排除本容器。
  * 真正可点的是下面的 .Port 子级（自身 pointer-events:all），容器 none 只是让点击穿透。 */
 .NodeShape-sidePorts {
+  --side-port-top: 40px;
   position: absolute;
   left: 0;
   right: 0;
@@ -2631,7 +2634,9 @@ body {
   pointer-events: none;
 }
 .NodeShape-sidePorts .Port {
-  top: 50%;
+  /* Use the same node-space y coordinate as connection geometry. The old 50%
+   * position drifted when rendered media height differed from model height. */
+  top: calc(var(--port-y, 0px) - var(--side-port-top));
   transform: translateY(-50%);
   pointer-events: all;
   /* 「+」圆框样式（设计提供）：深底 + 浅描边。默认 #E1DED8（图片节点维持此原样）。 */
@@ -2679,7 +2684,7 @@ body {
    * 否则覆盖层会相对外层 .ImageGenNode 定位、含 imageBox 的 margin 偏移，裁剪框与媒体区对不齐。 */
   position: relative;
   margin: 4px 12px 12px;
-  height: 140px;
+  height: var(--media-preview-height, 140px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2703,6 +2708,7 @@ body {
 }
 /* 无卡内 header：两侧端口容器占满整卡（不再下移 40px header），端口随之垂直居中卡片。 */
 .NodeShape_mediaResult .NodeShape-sidePorts {
+  --side-port-top: 0px;
   top: 0;
 }
 /* 标题浮到卡片【外部上方】（不在卡内 header），色 #E1DED8。 */
@@ -2731,6 +2737,12 @@ body {
   object-fit: cover;
 }
 
+/* The box follows the selected aspect ratio, while contain keeps the complete
+ * image visible if the provider returns a slightly different intrinsic ratio. */
+.ImageGenNode-image_contain {
+  object-fit: contain;
+}
+
 /* 空 media 时的状态/反馈文案（生成中、生成失败、请先填写… 等 lastResult）。 */
 .ImageGenNode-status {
   padding: 12px;
@@ -2738,6 +2750,26 @@ body {
   line-height: 1.5;
   color: var(--tl-color-text-3);
   text-align: center;
+  word-break: break-word;
+}
+
+/* 媒体区里的「状态 + 上游素材摘要」纵向堆叠（视频节点用）。
+ * 放在 imageBox 内部，不改变 body 高度，因而不影响端口/连线几何。 */
+.ImageGenNode-statusStack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  text-align: center;
+}
+
+/* 上游素材摘要：只描述真实连接（文本素材 / N 张图片 / 首帧）。 */
+.ImageGenNode-upstream {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--tl-color-text-3);
   word-break: break-word;
 }
 

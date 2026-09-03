@@ -8,6 +8,22 @@ export type CheckItem = {
   label: string;
   state: CheckState;
   detail: string;
+  /** What the operator should do about it. Present on violations only. */
+  suggestion?: string;
+  /** A blocking violation: the listing is held for human review, never carried
+   * forward silently. */
+  blocking?: boolean;
+  /** The offending substrings, so the UI can point at them. */
+  evidence?: string[];
+};
+
+export type DraftField = {
+  label: string;
+  value: string;
+  /** stable field slug from the backend (bullet-1, search-terms, …) */
+  field?: string;
+  /** SKU fact IDs this field depends on */
+  factRefs?: string[];
 };
 
 export type PlatformDraft = {
@@ -15,10 +31,21 @@ export type PlatformDraft = {
   name: string;
   role: string;
   title: string;
-  fields: { label: string; value: string }[];
+  fields: DraftField[];
   imageLabel: string;
   imageUrl?: string;
   checks: CheckItem[];
+  /** deterministic suggested replacement title when the generated one violates
+   * a blocking platform rule */
+  suggestedTitle?: string;
+  /** true when a blocking platform rule failed — the draft is held for human
+   * review and must never be carried forward silently */
+  hasBlockingViolations?: boolean;
+  /** dependency metadata for the self-healing migration workflow */
+  titleFactRefs?: string[];
+  policyVersion?: string;
+  skuRevision?: string;
+  factIds?: string[];
 };
 
 export const DEMO_SKU = {
@@ -50,29 +77,10 @@ export const EMPTY_HINT: Record<PlatformId, string[]> = {
   shopify: ['品牌标题', '长描述', '生活图（无强制白底）'],
 };
 
-export const RULE_ROWS = [
-  {
-    platform: 'Amazon',
-    role: '货架',
-    image: '纯白 RGB 255,255,255 · 主体约 85% · 主图禁加字',
-    source: 'Seller Central 主图规范',
-    date: '2026-08-25',
-  },
-  {
-    platform: 'TikTok Shop',
-    role: '货架（连着内容）',
-    image: '商品卡主图偏白底、无加字；≠ 信息流广告封面',
-    source: 'TikTok Shop 美国卖家大学 Listing',
-    date: '2026-08-25',
-  },
-  {
-    platform: 'Shopify',
-    role: '品牌站',
-    image: '无强制白底，生活图可用',
-    source: 'Shopify 商品媒体帮助',
-    date: '2026-08-25',
-  },
-];
+// The rules table is served by the backend (/api/rules, assembled from the
+// versioned policy snapshots in api/policy/snapshots/).
+// A minimal offline fallback lives in station/rulesApi.ts and is shown only
+// when that endpoint is unreachable, clearly marked as not-current.
 
 const BPA_FIX: CheckItem = {
   id: 'bpa',

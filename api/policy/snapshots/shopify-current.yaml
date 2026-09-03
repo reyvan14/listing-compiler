@@ -1,0 +1,30 @@
+# Bundled policy snapshot — dated excerpt of Shopify product media help.
+platform: shopify
+market: US
+version: shopify-2025.03
+status: current
+effective_date: "2025-03-01"
+excerpt_date: "2026-08-25"
+source_name: Shopify 商品媒体帮助
+source_url: https://help.shopify.com/en/manual/products/product-media/product-media-types
+summary: >-
+  商品媒体无强制白底，生活图 / 场景图可用；建议品牌标题 + 长描述而非五点模板。
+display:
+  name: Shopify
+  role: 品牌站
+  image_label: 品牌站生活图
+  image_summary: 无强制白底，生活图可用
+notes: 品牌站不强制白底，无标题长度硬性上限。
+rules:
+  - id: shopify.product_media.no_white_required
+    kind: text
+    field: shopify:main_image
+    severity: warn
+    params: {}
+    description: 商品媒体无强制白底，生活图 / 场景图可用。
+  - id: shopify.copy.brand_voice
+    kind: text
+    field: shopify:description
+    severity: warn
+    params: {}
+    description: 建议品牌标题 + 长描述，而非货架式五点模板。

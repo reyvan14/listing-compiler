@@ -26,6 +26,19 @@ type ExecutionGraphNode = PendingExecutionGraphNode | ExecutedExecutionGraphNode
 export class ExecutionGraph {
 	private readonly nodesById = new AtomMap<TLShapeId, ExecutionGraphNode>('node by id')
 
+	/** Aborted by stop(). Node execute() implementations receive this signal so
+	 * an in-flight request can be cancelled, and the graph itself bails after
+	 * every awaited node before touching state or starting dependents. */
+	private readonly abortController = new AbortController()
+
+	get signal(): AbortSignal {
+		return this.abortController.signal
+	}
+
+	get isStopped(): boolean {
+		return this.state === 'stopped'
+	}
+
 	constructor(
 		private readonly editor: Editor,
 		private readonly startingNodeIds: Set<TLShapeId>
@@ -75,6 +88,7 @@ export class ExecutionGraph {
 
 	stop() {
 		this.state = 'stopped'
+		this.abortController.abort()
 	}
 
 	private async executeNodeIfReady(nodeId: TLShapeId) {
@@ -137,7 +151,13 @@ export class ExecutionGraph {
 			type: node.shape.type,
 			props: { isOutOfDate: true },
 		})
-		const outputs = await executeNode(this.editor, node.shape, inputs)
+		const outputs = await executeNode(this.editor, node.shape, inputs, this.signal)
+
+		// The graph may have been stopped while this node was awaiting. A stale
+		// or cancelled result must not update node state, clear isOutOfDate, or
+		// start dependents.
+		if (this.state !== 'executing') return
+
 		this.editor.updateShape({
 			id: nodeId,
 			type: node.shape.type,
