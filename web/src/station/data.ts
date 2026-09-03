@@ -86,7 +86,7 @@ const BPA_FIX: CheckItem = {
   id: 'bpa',
   label: 'BPA-Free 宣称',
   state: 'fix',
-  detail: '卖点写了 BPA-Free，工位未见证书。标出来，不替平台删，也不担保过审。',
+  detail: '卖点写了 BPA-Free，但未见证书。标出来，不替平台删，也不担保过审。',
 };
 
 function imageCheck(mode: AssetMode, platform: PlatformId): CheckItem {

@@ -1,8 +1,8 @@
 import { fetchMediaImage } from '@/station/mediaApi'
 import { toSafeMessage } from '@/station/apiClient'
 import { useEffect, useState, type CSSProperties, type SyntheticEvent } from 'react'
-import { createPortal } from 'react-dom'
 import { T, useEditor, useValue } from 'tldraw'
+import { useImageLightbox } from '@/components/useImageLightbox'
 import { ImageGenerateIcon } from '../../components/icons/ImageGenerateIcon'
 import { executionState, startExecution, stopExecution } from '../../execution/executionState'
 import { classifyPortInputs } from '../nodePorts'
@@ -155,59 +155,9 @@ function ImagePlaceholderIcon() {
   )
 }
 
-function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKeyDown, true)
-    return () => document.removeEventListener('keydown', onKeyDown, true)
-  }, [onClose])
-
-  return createPortal(
-    <div
-      className="NodeMedia-lightbox"
-      role="dialog"
-      aria-modal="true"
-      aria-label="图片预览"
-      data-testid="image-lightbox"
-      onPointerDown={event => event.stopPropagation()}
-      onClick={onClose}
-    >
-      <a
-        className="NodeMedia-lightbox-download"
-        href={src}
-        download="generated-image.png"
-        onClick={event => event.stopPropagation()}
-      >
-        下载
-      </a>
-      <button
-        type="button"
-        className="NodeMedia-lightbox-close"
-        aria-label="关闭图片预览"
-        autoFocus
-        onClick={event => {
-          event.stopPropagation()
-          onClose()
-        }}
-      >
-        ×
-      </button>
-      <img
-        className="NodeMedia-lightbox-media"
-        src={src}
-        alt="生成图片大图预览"
-        onClick={event => event.stopPropagation()}
-      />
-    </div>,
-    document.body,
-  )
-}
-
 function ImageGenerationNodeComponent({ shape, node }: NodeComponentProps<ImageGenerationNode>) {
   const editor = useEditor()
-  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const lightbox = useImageLightbox()
   const isExecuting = useValue(
     'image executing',
     () => executionState.get(editor).runningGraph?.getNodeStatus(shape.id) === 'executing',
@@ -258,7 +208,7 @@ function ImageGenerationNodeComponent({ shape, node }: NodeComponentProps<ImageG
             onPointerDown={keepOnControl}
             onDoubleClick={event => {
               event.stopPropagation()
-              setLightboxOpen(true)
+              lightbox.openLightbox()
             }}
           />
         ) : isExecuting ? (
@@ -308,9 +258,7 @@ function ImageGenerationNodeComponent({ shape, node }: NodeComponentProps<ImageG
           </div>
         </div>
       )}
-      {preview && lightboxOpen && (
-        <ImageLightbox src={preview} onClose={() => setLightboxOpen(false)} />
-      )}
+      {lightbox.render(preview, '生成图片原图', '生成图片大图预览')}
     </div>
   )
 }

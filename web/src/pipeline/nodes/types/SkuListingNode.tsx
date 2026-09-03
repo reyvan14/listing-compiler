@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ApiError, toSafeMessage } from '@/station/apiClient'
+import { useImageLightbox } from '@/components/useImageLightbox'
 import { buildSkuArtifacts } from '@/station/skuArtifacts'
 import {
   announceListingSource,
@@ -221,6 +222,8 @@ function SkuListingNodeComponent({ shape, node }: NodeComponentProps<SkuListingN
     [editor],
   )
 
+  const uploadLightbox = useImageLightbox()
+  const [zoomed, setZoomed] = useState('')
   const [errors, setErrors] = useState<SkuFieldError[]>([])
   const [elapsed, setElapsed] = useState(0)
   const nameRef = useRef<HTMLInputElement>(null)
@@ -344,7 +347,23 @@ function SkuListingNodeComponent({ shape, node }: NodeComponentProps<SkuListingN
         ) : (
           <span className={styles.thumbs}>
             {node.uploads.map((src, i) => (
-              <img key={src + i} src={src} alt={`产品图 ${i + 1}`} />
+              // Double-click opens the original. The thumbnails are too small
+              // for a labelled button, and the surrounding <label> would
+              // otherwise open the file picker, so the click is swallowed.
+              <img
+                key={src + i}
+                src={src}
+                alt={`产品图 ${i + 1}`}
+                title="双击查看原图"
+                style={{ cursor: 'zoom-in' }}
+                onPointerDown={keepOnControl}
+                onDoubleClick={event => {
+                  event.stopPropagation()
+                  event.preventDefault()
+                  setZoomed(src)
+                  uploadLightbox.openLightbox(event.currentTarget as unknown as HTMLElement)
+                }}
+              />
             ))}
           </span>
         )}
@@ -427,6 +446,8 @@ function SkuListingNodeComponent({ shape, node }: NodeComponentProps<SkuListingN
           </div>
         </div>
       )}
+
+      {uploadLightbox.render(zoomed, '产品图原图', '上传的产品图原图')}
 
       <div className={styles.actions} onPointerDown={keepOnControl}>
         <button

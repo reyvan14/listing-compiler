@@ -210,7 +210,7 @@ export function StationApp() {
       <header className={styles.header}>
         <div className={styles.brand}>
           <span>跨境上架编译器</span>
-          <em>SKU 上新工位</em>
+          <em>SKU 上新编译流程</em>
         </div>
         <p className={styles.headerLine}>拖标题或卡片空白可移动。空格拖动画布，或切手型。</p>
         <div className={styles.headerMeta}>
@@ -469,7 +469,7 @@ function RulesDrawer({
               <thead>
                 <tr>
                   <th>台 / 规则 ID</th>
-                  <th>工位</th>
+                  <th>角色</th>
                   <th>规则摘录</th>
                   <th>出处</th>
                 </tr>

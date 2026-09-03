@@ -13,6 +13,7 @@ import {
   STAMP,
   type ListingResultNode,
 } from '@/pipeline/nodes/types/skuStation'
+import { ViewOriginalButton, useImageLightbox } from '@/components/useImageLightbox'
 import { EvidenceTab, EvidenceVerdictSummary } from './EvidenceTab'
 import { useEvidenceGate } from './useEvidenceGate'
 import styles from './listingInspector.module.scss'
@@ -256,6 +257,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 }
 
 function ContentTab({ node }: { node: ListingResultNode }) {
+  const lightbox = useImageLightbox()
   const bullets = node.fields.filter(f => f.label.startsWith(BULLET_PREFIX))
   const search = node.fields.filter(f => SEARCH_LABELS.includes(f.label))
   const long = node.fields.filter(f => LONG_LABELS.includes(f.label))
@@ -268,10 +270,27 @@ function ContentTab({ node }: { node: ListingResultNode }) {
       <div className={styles.colNarrow}>
         <section className={styles.block}>
           <h3>主图</h3>
-          <div className={styles.art}>
-            <img src={node.imageUrl} alt={`${node.name} ${node.imageLabel}`} />
+          {/* The zoom affordance only exists when there is a real source to
+              open — never a control that leads nowhere. */}
+          <div className={`${styles.art} ImageZoomHost`}>
+            <img
+              src={node.imageUrl}
+              alt={`${node.name} ${node.imageLabel}`}
+              onDoubleClick={event => {
+                event.stopPropagation()
+                lightbox.openLightbox(event.currentTarget as unknown as HTMLElement)
+              }}
+            />
+            {node.imageUrl && (
+              <ViewOriginalButton onOpen={trigger => lightbox.openLightbox(trigger)} />
+            )}
           </div>
           <p className={styles.meta}>{node.imageLabel}</p>
+          {lightbox.render(
+            node.imageUrl,
+            `${node.name} ${node.imageLabel} 原图`,
+            `${node.name} ${node.imageLabel}`,
+          )}
         </section>
       </div>
 
