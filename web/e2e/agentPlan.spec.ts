@@ -120,6 +120,63 @@ test.describe('Agent canvas operations', () => {
     }
   });
 
+  test('runs the approved full workflow once from the SKU root', async ({ page }) => {
+    let listingCalls = 0;
+    let imageCalls = 0;
+    let videoCalls = 0;
+
+    await page.route('**/api/listing/generate', async route => {
+      listingCalls += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 0,
+          data: {
+            source: 'fallback',
+            drafts: [
+              { id: 'amazon', title: 'Amazon draft', fields: [], checks: [] },
+              { id: 'tiktok', title: 'TikTok draft', fields: [], checks: [] },
+              { id: 'shopify', title: 'Shopify draft', fields: [], checks: [] },
+            ],
+          },
+        }),
+      });
+    });
+    await page.route('**/api/media/image', async route => {
+      imageCalls += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, data: { url: '/station/cup-white.svg' } }),
+      });
+    });
+    await page.route('**/api/media/video', async route => {
+      videoCalls += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, data: { url: '/station/demo-video.mp4' } }),
+      });
+    });
+
+    await ask(
+      page,
+      '为这个 SKU 创建 Amazon、TikTok Shop 和 Shopify 完整上新工作流并生成视频',
+    );
+    const card = page.locator(PLAN_CARD);
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    await card.getByRole('button', { name: '应用并运行' }).click();
+    await card.getByRole('button', { name: '确认应用并运行' }).click();
+
+    await expect(card.locator('[data-testid="plan-state"]')).toHaveText('已运行完成', {
+      timeout: 20_000,
+    });
+    expect(listingCalls).toBe(1);
+    expect(imageCalls).toBe(3);
+    expect(videoCalls).toBe(1);
+  });
+
   test('will not start generation from the activity row on a single click', async ({ page }) => {
     await ask(page, '为这个 SKU 创建三台完整上新工作流');
     const card = page.locator(PLAN_CARD);

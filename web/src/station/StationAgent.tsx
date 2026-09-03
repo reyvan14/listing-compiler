@@ -70,6 +70,8 @@ export function StationAgent({
   // Generation costs money, so it never happens on a single click.
   const [confirmRunAt, setConfirmRunAt] = useState<number | null>(null)
   const planSeq = useRef(0)
+  const applyingPlans = useRef(new Set<string>())
+  const runningPlans = useRef(new Set<string>())
 
   const nodeNames = useMemo(
     () => (editor ? nodeDisplayNames(editor) : new Map<string, string>()),
@@ -145,7 +147,8 @@ export function StationAgent({
   /** Apply, then (optionally) run. Only reports what actually happened. */
   const apply = async (planId: string, thenRun: boolean) => {
     const record = plans[planId]
-    if (!record || !editor) return
+    if (!record || !editor || applyingPlans.current.has(planId)) return
+    applyingPlans.current.add(planId)
     setPreviewPlanId(current => (current === planId ? null : current))
     setPlanState(planId, { state: 'applying', errors: undefined })
 
@@ -160,26 +163,36 @@ export function StationAgent({
         text: '这次改动没有应用，画布保持原样。',
         error: true,
       })
+      applyingPlans.current.delete(planId)
       return
     }
 
     const touched = [...result.createdNodeIds, ...result.updatedNodeIds]
+    const nodesToRun = result.runNodeIds.length ? result.runNodeIds : touched
     setPlanState(planId, { state: 'applied', applied: result })
     push({
       kind: 'activity',
       role: 'assistant',
       planId,
       nodeIds: touched,
-      runNodeIds: result.runNodeIds.length ? result.runNodeIds : result.createdNodeIds,
+      runNodeIds: nodesToRun,
       text: `已应用到画布：新建 ${result.createdNodeIds.length} 个节点，修改 ${result.updatedNodeIds.length} 个，连接 ${result.connectionIds.length} 条。尚未生成任何内容。`,
     })
 
-    if (!thenRun) return
-    await run(planId, result.runNodeIds.length ? result.runNodeIds : result.createdNodeIds)
+    if (!thenRun) {
+      applyingPlans.current.delete(planId)
+      return
+    }
+    try {
+      await run(planId, nodesToRun)
+    } finally {
+      applyingPlans.current.delete(planId)
+    }
   }
 
   const run = async (planId: string, nodeIds: string[]) => {
-    if (!editor || nodeIds.length === 0) return
+    if (!editor || nodeIds.length === 0 || runningPlans.current.has(planId)) return
+    runningPlans.current.add(planId)
     setPlanState(planId, { state: 'running' })
     try {
       await runAgentNodes(editor, nodeIds)
@@ -192,12 +205,14 @@ export function StationAgent({
     } catch (err) {
       setPlanState(planId, { state: 'failed', errors: [toSafeMessage(err)] })
       push({ kind: 'text', role: 'assistant', text: toSafeMessage(err), error: true })
+    } finally {
+      runningPlans.current.delete(planId)
     }
   }
 
   const undo = (planId: string, itemIndex: number) => {
     const record = plans[planId]
-    if (!record?.applied) return
+    if (!record?.applied || runningPlans.current.has(planId)) return
     record.applied.undo()
     setPlanState(planId, { state: 'cancelled', applied: undefined })
     setItems(prev =>
@@ -228,6 +243,18 @@ export function StationAgent({
 
   const lastIsError = items.at(-1)?.kind === 'text' && (items.at(-1) as { error?: boolean }).error
   const previewPlan = previewPlanId ? plans[previewPlanId]?.plan : null
+  let latestUndoableActivity = -1
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i]
+    if (
+      item.kind === 'activity' &&
+      !item.undone &&
+      Boolean(plans[item.planId]?.applied)
+    ) {
+      latestUndoableActivity = i
+      break
+    }
+  }
 
   return (
     <>
@@ -282,6 +309,7 @@ export function StationAgent({
             if (item.kind === 'activity') {
               const record = plans[item.planId]
               const canRun = !item.undone && (record?.state === 'applied' || record?.state === 'failed')
+              const canUndo = !item.undone && i === latestUndoableActivity && record?.state !== 'running'
               return (
                 <div key={`activity-${i}`} className={styles.bot}>
                   {item.undone ? '这次改动已被撤销。' : item.text}
@@ -312,9 +340,11 @@ export function StationAgent({
                           </button>
                         )
                       )}
-                      <button type="button" onClick={() => undo(item.planId, i)}>
-                        撤销本次操作
-                      </button>
+                      {canUndo && (
+                        <button type="button" onClick={() => undo(item.planId, i)}>
+                          撤销本次操作
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

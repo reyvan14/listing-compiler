@@ -13,6 +13,9 @@ export const MAX_OPERATIONS = 24;
 export const MAX_CREATED_NODES = 8;
 export const MAX_PROMPT_CHARS = 600;
 export const MAX_TEXT_CHARS = 2000;
+export const MAX_NODE_REFS = MAX_CREATED_NODES * 2;
+
+const NODE_REF_RE = /^[A-Za-z0-9:_-]{1,80}$/;
 
 const IMAGE_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2'];
 const VIDEO_RATIOS = ['9:16', '16:9', '1:1'];
@@ -140,8 +143,12 @@ export function validatePlan(editor: Editor, plan: AgentPlan): ValidationResult 
       errors.push(`不支持的节点类型：${op.nodeType}`);
       continue;
     }
-    if (tempIds.has(op.tempId)) errors.push(`tempId 重复：${op.tempId}`);
-    tempIds.add(op.tempId);
+    if (!NODE_REF_RE.test(op.tempId)) {
+      errors.push(`tempId 不是合法的节点引用：${String(op.tempId)}`);
+    } else {
+      if (tempIds.has(op.tempId)) errors.push(`tempId 重复：${op.tempId}`);
+      tempIds.add(op.tempId);
+    }
   }
   if (created > MAX_CREATED_NODES) {
     errors.push(`新建节点数量超过上限（${MAX_CREATED_NODES}）`);
@@ -154,6 +161,15 @@ export function validatePlan(editor: Editor, plan: AgentPlan): ValidationResult 
   for (const op of ops) {
     switch (op.type) {
       case 'create_node':
+        if (
+          op.position != null &&
+          (!Number.isFinite(op.position.x) ||
+            !Number.isFinite(op.position.y) ||
+            Math.abs(op.position.x) >= 100_000 ||
+            Math.abs(op.position.y) >= 100_000)
+        ) {
+          errors.push('position 需要画布范围内的有限数值 x / y');
+        }
         if (AGENT_NODE_TYPES.includes(op.nodeType)) {
           for (const [key, value] of Object.entries(op.fields ?? {})) {
             validateField(op.nodeType, key, value, errors);
@@ -164,6 +180,10 @@ export function validatePlan(editor: Editor, plan: AgentPlan): ValidationResult 
       case 'update_node': {
         if (!AGENT_NODE_TYPES.includes(op.nodeType)) {
           errors.push(`不支持的节点类型：${op.nodeType}`);
+          break;
+        }
+        if (!NODE_REF_RE.test(op.nodeId)) {
+          errors.push(`nodeId 不是合法的节点引用：${String(op.nodeId)}`);
           break;
         }
         const shape = liveNode(editor, op.nodeId);
@@ -184,7 +204,11 @@ export function validatePlan(editor: Editor, plan: AgentPlan): ValidationResult 
 
       case 'connect_nodes': {
         for (const end of [op.from, op.to]) {
-          if (!resolvable(end.nodeId)) errors.push(`连接引用了不存在的节点：${end.nodeId}`);
+          if (!NODE_REF_RE.test(end.nodeId) || !NODE_REF_RE.test(end.portId)) {
+            errors.push(`连接包含不合法的节点或端口引用`);
+          } else if (!resolvable(end.nodeId)) {
+            errors.push(`连接引用了不存在的节点：${end.nodeId}`);
+          }
         }
         // Ports can only be checked for nodes that already exist; a node this
         // plan is about to create gets its ports checked at apply time, where
@@ -208,11 +232,20 @@ export function validatePlan(editor: Editor, plan: AgentPlan): ValidationResult 
       }
 
       case 'focus_nodes':
-      case 'run_nodes':
-        for (const id of op.nodeIds ?? []) {
-          if (!resolvable(id)) errors.push(`引用了不存在的节点：${id}`);
+      case 'run_nodes': {
+        if (!Array.isArray(op.nodeIds) || op.nodeIds.length === 0) {
+          errors.push(`${op.type} 需要 nodeIds 数组`);
+          break;
+        }
+        if (op.nodeIds.length > MAX_NODE_REFS) {
+          errors.push(`${op.type} 的节点数量超过上限`);
+        }
+        for (const id of op.nodeIds) {
+          if (!NODE_REF_RE.test(id)) errors.push(`不是合法的节点引用：${String(id)}`);
+          else if (!resolvable(id)) errors.push(`引用了不存在的节点：${id}`);
         }
         break;
+      }
 
       default:
         errors.push(`不支持的操作类型：${(op as { type: string }).type}`);

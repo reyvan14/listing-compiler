@@ -1,6 +1,6 @@
 import type { Editor } from 'tldraw';
 import type { NodeShape } from '@/pipeline/nodes/NodeShapeUtil';
-import { getNodePortConnections } from '@/pipeline/nodes/nodePorts';
+import { getNodePortConnections, getNodePorts } from '@/pipeline/nodes/nodePorts';
 import { executionState } from '@/pipeline/execution/executionState';
 import type { AgentCanvasContext, NodeStatus } from './types';
 
@@ -179,12 +179,13 @@ export function buildCanvasContext(
       const key = `${shape.id}:${conn.ownPortId}->${conn.connectedShapeId}:${conn.connectedPortId}`;
       if (seen.has(key) || connections.length >= MAX_CONNECTIONS) continue;
       seen.add(key);
+      const dataType = getNodePorts(editor, shape)[conn.ownPortId]?.dataType ?? 'any';
       connections.push({
         fromNodeId: shape.id,
         fromPortId: conn.ownPortId,
         toNodeId: conn.connectedShapeId,
         toPortId: conn.connectedPortId,
-        dataType: 'text',
+        dataType,
       });
     }
   }
@@ -210,7 +211,7 @@ export function buildCanvasContext(
 
 /** Belt-and-braces: no data URL may leave the client inside the context. */
 export function containsMediaPayload(context: unknown): boolean {
-  return /data:[a-z]+\/[a-z0-9.+-]+;base64,/i.test(JSON.stringify(context ?? {}));
+  return /data:[a-z]+\/[a-z0-9.+-]+(?:;base64)?[,;]/i.test(JSON.stringify(context ?? {}));
 }
 
 /**

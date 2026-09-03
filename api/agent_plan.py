@@ -204,9 +204,11 @@ def validate_operation(raw: Any) -> dict[str, Any]:
     ids = raw.get("nodeIds")
     if not isinstance(ids, list) or not ids:
         raise PlanError(f"{op_type} 需要 nodeIds 数组")
+    if len(ids) > MAX_CREATED_NODES * 2:
+        raise PlanError(f"{op_type} 的节点数量超过上限")
     return {
         "type": op_type,
-        "nodeIds": [_validate_ref(i, "nodeIds[]") for i in ids[:MAX_CREATED_NODES * 2]],
+        "nodeIds": [_validate_ref(i, "nodeIds[]") for i in ids],
     }
 
 
@@ -230,16 +232,23 @@ def validate_plan(raw: Any) -> dict[str, Any]:
     if len(temp_ids) != created:
         raise PlanError("tempId 重复")
 
-    warnings = [
-        _clean_text(w, 200) for w in (raw.get("warnings") or []) if str(w or "").strip()
-    ][:10]
+    warnings_raw = raw.get("warnings") or []
+    if not isinstance(warnings_raw, list):
+        raise PlanError("warnings 必须是数组")
+    warnings = [_clean_text(w, 200) for w in warnings_raw if str(w or "").strip()][:10]
+
+    estimated_calls = raw.get("estimatedModelCalls", 0)
+    if isinstance(estimated_calls, bool) or not isinstance(estimated_calls, int):
+        raise PlanError("estimatedModelCalls 必须是整数")
+    if not 0 <= estimated_calls <= 50:
+        raise PlanError("estimatedModelCalls 超出范围")
     runs = [op for op in operations if op["type"] == "run_nodes"]
 
     return {
         "id": _clean_text(raw.get("id") or f"plan-{uuid.uuid4().hex[:10]}", 60),
         "title": _clean_text(raw.get("title") or "画布操作计划", 80),
         "summary": _clean_text(raw.get("summary") or "", 600),
-        "estimatedModelCalls": max(0, min(int(raw.get("estimatedModelCalls") or 0), 50)),
+        "estimatedModelCalls": estimated_calls,
         "warnings": warnings,
         # Any plan that runs anything needs the second confirmation, whatever
         # the model claimed.
@@ -361,9 +370,11 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
     ops: list[dict[str, Any]] = []
     creates: list[str] = []
 
-    want_amazon = "amazon" in tags or not (tags & {"tiktok", "shopify"})
-    want_tiktok = "tiktok" in tags
-    want_shopify = "shopify" in tags
+    explicit_platforms = tags & {"amazon", "tiktok", "shopify"}
+    all_platforms = "full_workflow" in tags and not explicit_platforms
+    want_amazon = "amazon" in tags or all_platforms or not explicit_platforms
+    want_tiktok = "tiktok" in tags or all_platforms
+    want_shopify = "shopify" in tags or all_platforms
 
     sku_ref = sku["id"] if sku else "sku1"
     sku_fields = {
@@ -509,6 +520,11 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
     if "evidence" in tags or "证据" in (text or ""):
         warnings.append("发布闸门仍会独立校验每条宣称，无证据的宣称不会被放行。")
 
+    # Running from the SKU root reuses the existing execution graph, which
+    # generates the three platform listings first and then walks each media
+    # branch. Merely applying the plan still does not run anything.
+    ops.append({"type": "run_nodes", "nodeIds": [sku_ref]})
+
     platforms = [
         name
         for name, want in (("Amazon", want_amazon), ("TikTok Shop", want_tiktok), ("Shopify", want_shopify))
@@ -522,11 +538,11 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
             f"，建立 {sum(1 for o in ops if o['type'] == 'connect_nodes')} 条连接。"
             "只写入节点字段，不会触发任何生成。"
         ),
-        "estimatedModelCalls": sum(
+        "estimatedModelCalls": 1 + sum(
             1 for o in ops if o["type"] == "create_node" and o["nodeType"] != "sku_listing"
         ),
         "warnings": warnings,
-        "requiresRunConfirmation": False,
+        "requiresRunConfirmation": True,
         "operations": ops,
     }
 

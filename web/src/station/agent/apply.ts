@@ -65,6 +65,7 @@ export function applyPlan(editor: Editor, plan: AgentPlan): ApplyResult {
   };
   const tempToReal = new Map<string, TLShapeId>();
   const updated: TLShapeId[] = [];
+  const snapshottedUpdates = new Set<TLShapeId>();
   const runIds: string[] = [];
   const focusIds: string[] = [];
 
@@ -136,13 +137,16 @@ export function applyPlan(editor: Editor, plan: AgentPlan): ApplyResult {
             if (!shape || !editor.isShapeOfType(shape, 'node')) {
               throw new AgentApplyError(`要更新的节点不存在：${op.nodeId}`);
             }
-            const bounds = editor.getShapePageBounds(id);
-            snapshot.previousNodes.push({
-              id,
-              node: structuredClone((shape as NodeShape).props.node),
-              x: bounds?.x ?? shape.x,
-              y: bounds?.y ?? shape.y,
-            });
+            if (!snapshottedUpdates.has(id)) {
+              const bounds = editor.getShapePageBounds(id);
+              snapshot.previousNodes.push({
+                id,
+                node: structuredClone((shape as NodeShape).props.node),
+                x: bounds?.x ?? shape.x,
+                y: bounds?.y ?? shape.y,
+              });
+              snapshottedUpdates.add(id);
+            }
             const current = (shape as NodeShape).props.node as Record<string, unknown>;
             editor.updateShape({
               id,
@@ -165,6 +169,9 @@ export function applyPlan(editor: Editor, plan: AgentPlan): ApplyResult {
                 `端口不存在：${!fromPort ? op.from.portId : op.to.portId}`,
               );
             }
+            if (fromPort.terminal !== 'start' || toPort.terminal !== 'end') {
+              throw new AgentApplyError('连接方向必须从输出端口指向输入端口');
+            }
             if (!arePortDataTypesCompatible(fromPort.dataType, toPort.dataType)) {
               throw new AgentApplyError(
                 `端口类型不兼容：${fromPort.dataType} → ${toPort.dataType}`,
@@ -178,6 +185,9 @@ export function applyPlan(editor: Editor, plan: AgentPlan): ApplyResult {
               y: 0,
               index: getNextConnectionIndex(editor),
             });
+            // Track the shape before binding either end: a failure after the
+            // first binding must still remove the half-created connection.
+            snapshot.createdConnectionIds.push(connectionId);
             createOrUpdateConnectionBinding(editor, connectionId, fromId, {
               portId: op.from.portId,
               terminal: 'start',
@@ -186,7 +196,6 @@ export function applyPlan(editor: Editor, plan: AgentPlan): ApplyResult {
               portId: op.to.portId,
               terminal: 'end',
             });
-            snapshot.createdConnectionIds.push(connectionId);
             break;
           }
 

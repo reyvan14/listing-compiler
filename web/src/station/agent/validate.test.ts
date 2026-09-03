@@ -209,6 +209,56 @@ describe('validatePlan', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('rejects invalid positions and malformed references from an untrusted backend', () => {
+    const badPosition = validatePlan(
+      editor(),
+      plan([
+        {
+          type: 'create_node',
+          tempId: 'new-image',
+          nodeType: 'image_generation',
+          fields: {},
+          position: { x: Number.POSITIVE_INFINITY, y: 0 },
+        },
+      ]),
+    );
+    expect(badPosition.ok).toBe(false);
+
+    const badRef = validatePlan(
+      editor(),
+      plan([{ type: 'run_nodes', nodeIds: ['shape:sku\nmalformed'] }]),
+    );
+    expect(badRef.ok).toBe(false);
+  });
+
+  it('rejects oversized node reference lists without truncating them', () => {
+    const result = validatePlan(
+      editor(),
+      plan([{ type: 'run_nodes', nodeIds: Array.from({ length: 17 }, () => SKU) }]),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.join()).toContain('节点数量超过上限');
+  });
+
+  it('rejects reversed connection directions', () => {
+    ports.byShape.set(SKU, {
+      output: { terminal: 'start', dataType: 'text' },
+      input: { terminal: 'end', dataType: 'text' },
+    });
+    const result = validatePlan(
+      editor(),
+      plan([
+        {
+          type: 'connect_nodes',
+          from: { nodeId: SKU, portId: 'input' },
+          to: { nodeId: SKU, portId: 'output' },
+        },
+      ]),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.join()).toContain('输出端口');
+  });
+
   it('rejects an empty plan', () => {
     expect(validatePlan(editor(), plan([])).ok).toBe(false);
   });

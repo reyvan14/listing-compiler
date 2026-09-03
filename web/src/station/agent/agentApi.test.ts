@@ -81,6 +81,7 @@ describe('canvas context redaction', () => {
 
   it('detects a media payload that slipped into the context', () => {
     expect(containsMediaPayload({ nodes: [{ f: dataUrl }] })).toBe(true);
+    expect(containsMediaPayload({ nodes: [{ f: 'data:image/svg+xml,<svg></svg>' }] })).toBe(true);
     expect(containsMediaPayload({ nodes: [{ f: '白底主图' }] })).toBe(false);
   });
 });

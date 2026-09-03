@@ -147,7 +147,7 @@ export function AgentPlanCard({
             >
               应用到画布
             </button>
-            {plan.estimatedModelCalls > 0 && (
+            {(plan.estimatedModelCalls > 0 || counts.runs > 0) && (
               <button
                 type="button"
                 onClick={() => setConfirmingRun(true)}

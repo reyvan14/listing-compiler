@@ -142,6 +142,39 @@ def test_oversized_plans_are_refused_not_truncated():
     with pytest.raises(ap.PlanError, match="新建节点数量超过上限"):
         ap.validate_plan({"operations": creates})
 
+    with pytest.raises(ap.PlanError, match="节点数量超过上限"):
+        ap.validate_plan(
+            {
+                "operations": [
+                    {
+                        "type": "run_nodes",
+                        "nodeIds": [f"shape:n{i}" for i in range(ap.MAX_CREATED_NODES * 2 + 1)],
+                    }
+                ]
+            }
+        )
+
+
+@pytest.mark.parametrize("value", ["1", 1.5, True, [], -1, 51])
+def test_estimated_model_calls_must_be_a_bounded_integer(value):
+    with pytest.raises(ap.PlanError, match="estimatedModelCalls"):
+        ap.validate_plan(
+            {
+                "estimatedModelCalls": value,
+                "operations": [{"type": "focus_nodes", "nodeIds": ["shape:a"]}],
+            }
+        )
+
+
+def test_warnings_must_be_an_array_not_a_string():
+    with pytest.raises(ap.PlanError, match="warnings"):
+        ap.validate_plan(
+            {
+                "warnings": "not a list",
+                "operations": [{"type": "focus_nodes", "nodeIds": ["shape:a"]}],
+            }
+        )
+
 
 def test_duplicate_temp_ids_are_rejected():
     with pytest.raises(ap.PlanError, match="tempId 重复"):
@@ -218,9 +251,24 @@ def test_the_demo_command_plans_the_full_workflow_without_a_model():
     links = [o for o in plan["operations"] if o["type"] == "connect_nodes"]
     assert {"img_tiktok"} == {l["from"]["nodeId"] for l in links if l["to"]["nodeId"] == "vid_tiktok"}
 
-    # a plan that only fills fields must not run anything
-    assert not any(o["type"] == "run_nodes" for o in plan["operations"])
-    assert plan["requiresRunConfirmation"] is False
+    # Applying only fills fields. If the operator separately confirms running,
+    # execution starts at the SKU root so listings and all media branches run.
+    runs = [o for o in plan["operations"] if o["type"] == "run_nodes"]
+    assert runs == [{"type": "run_nodes", "nodeIds": ["shape:sku"]}]
+    assert plan["requiresRunConfirmation"] is True
+    assert plan["estimatedModelCalls"] == len(creates) + 1
+
+
+def test_three_station_quick_action_defaults_to_all_platforms():
+    plan = ap.validate_plan(ap.deterministic_plan("为这个 SKU 创建三台完整上新工作流", ctx()))
+    sku_update = next(o for o in plan["operations"] if o["type"] == "update_node")
+    assert sku_update["fields"] == {"amazon": True, "tiktok": True, "shopify": True}
+    image_names = {
+        o["fields"].get("name")
+        for o in plan["operations"]
+        if o["type"] == "create_node" and o["nodeType"] == "image_generation"
+    }
+    assert image_names == {"Amazon 白底主图", "TikTok 场景图", "Shopify 品牌生活图"}
 
 
 def test_the_plan_surfaces_evidence_state_as_warnings():
