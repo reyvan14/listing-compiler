@@ -91,8 +91,38 @@ def detect_claims(text: str) -> list[dict[str, str]]:
                 "claim_type": claim_type,
                 "label": label,
                 "matched": m.group(0).strip(),
+                "claimed_value": _claimed_value(key, m.group(0)),
             }
     return [seen[k] for k in sorted(seen)]
+
+
+def _claimed_value(key: str, matched: str) -> str:
+    """Normalised value asserted by a matched claim, when it is explicit."""
+    numbers = re.findall(r"-?\d+(?:\.\d+)?", matched)
+    if key == "temperature_range" and len(numbers) >= 2:
+        return f"{_normal_number(numbers[0])}..{_normal_number(numbers[1])}"
+    if key in ("capacity", "folded_height") and numbers:
+        return _normal_number(numbers[0])
+    if key in ("bpa_free", "food_grade_silicone", "dishwasher_safe", "recyclable", "child_safe"):
+        return "true"
+    return ""
+
+
+def _normal_number(value: str) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value).strip().lower()
+    return str(int(number)) if number.is_integer() else format(number, "g")
+
+
+def _normal_fact_value(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    if ".." in raw:
+        return "..".join(_normal_number(v) for v in raw.split("..", 1))
+    if re.fullmatch(r"-?\d+(?:\.\d+)?", raw):
+        return _normal_number(raw)
+    return raw
 
 
 def _verdict_for(claim: dict[str, str], fact: "dict[str, Any] | None") -> dict[str, Any]:
@@ -127,6 +157,15 @@ def _verdict_for(claim: dict[str, str], fact: "dict[str, Any] | None") -> dict[s
             "suggestion": "在「证据」标签页确认该事实后即可放行。",
         }
     if state in _PASSING:
+        asserted = _normal_fact_value(claim.get("claimed_value"))
+        evidenced = _normal_fact_value(fact.get("value"))
+        if asserted and evidenced and asserted != evidenced:
+            return {
+                "verdict": BLOCKED,
+                "state": CONFLICTING,
+                "detail": f"「{label}」宣称值 {claim.get('matched')} 与已核实证据值 {fact.get('display') or fact.get('value')} 不一致。",
+                "suggestion": "修正文案中的数值，或上传并核实能支撑该数值的新证据。",
+            }
         return {
             "verdict": OK,
             "state": state,

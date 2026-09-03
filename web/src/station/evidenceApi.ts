@@ -125,10 +125,39 @@ export type GateResponse = {
   summary: { blocked: number; needs_review: number; ok: number; claims: number };
 };
 
-async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+const EVIDENCE_WORKSPACE_KEY = 'listing.evidence.workspace.v1';
+let memoryWorkspace = '';
+
+/**
+ * The public demo has no accounts.  A random browser-local workspace plus the
+ * current product id prevents unrelated visitors/products from sharing one
+ * mutable evidence ledger.  This is isolation, not authentication.
+ */
+export function evidenceHeaders(productId = 'default-product'): Record<string, string> {
+  if (!memoryWorkspace) {
+    try {
+      memoryWorkspace = localStorage.getItem(EVIDENCE_WORKSPACE_KEY) ?? '';
+      if (!memoryWorkspace) {
+        memoryWorkspace = crypto.randomUUID();
+        localStorage.setItem(EVIDENCE_WORKSPACE_KEY, memoryWorkspace);
+      }
+    } catch {
+      memoryWorkspace = `ephemeral-${crypto.randomUUID()}`;
+    }
+  }
+  return {
+    'X-Workspace-ID': memoryWorkspace,
+    // Header values must be ByteString-compatible. Product names may contain
+    // Chinese characters, so send a bounded ASCII representation; the backend
+    // hashes it again before it ever becomes a path segment.
+    'X-Product-ID': encodeURIComponent(productId || 'default-product').slice(0, 512),
+  };
+}
+
+async function getJson<T>(path: string, productId: string, signal?: AbortSignal): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(apiUrl(path), { signal });
+    res = await fetch(apiUrl(path), { signal, headers: evidenceHeaders(productId) });
   } catch {
     throw new ApiError('network');
   }
@@ -145,13 +174,13 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   return json.data;
 }
 
-export async function fetchSources(signal?: AbortSignal): Promise<EvidenceSource[]> {
-  const data = await getJson<{ sources: EvidenceSource[] }>('/api/evidence/sources', signal);
+export async function fetchSources(productId = 'default-product', signal?: AbortSignal): Promise<EvidenceSource[]> {
+  const data = await getJson<{ sources: EvidenceSource[] }>('/api/evidence/sources', productId, signal);
   return data.sources ?? [];
 }
 
-export async function fetchFacts(signal?: AbortSignal): Promise<ProductFact[]> {
-  const data = await getJson<{ facts: ProductFact[] }>('/api/evidence/facts', signal);
+export async function fetchFacts(productId = 'default-product', signal?: AbortSignal): Promise<ProductFact[]> {
+  const data = await getJson<{ facts: ProductFact[] }>('/api/evidence/facts', productId, signal);
   return data.facts ?? [];
 }
 
@@ -159,6 +188,7 @@ export async function fetchFacts(signal?: AbortSignal): Promise<ProductFact[]> {
 export async function uploadEvidence(
   file: File,
   opts: { expiresOn?: string; label?: string; signal?: AbortSignal } = {},
+  productId = 'default-product',
 ): Promise<{ source: EvidenceSource; facts: ProductFact[] }> {
   const form = new FormData();
   form.append('file', file);
@@ -171,6 +201,7 @@ export async function uploadEvidence(
       method: 'POST',
       body: form,
       signal: opts.signal,
+      headers: evidenceHeaders(productId),
     });
   } catch {
     throw new ApiError('network');
@@ -196,18 +227,20 @@ export async function setFactState(
   factId: string,
   state: FactState,
   opts: { value?: string; note?: string } = {},
+  productId = 'default-product',
 ): Promise<ProductFact> {
   const data = await postJson<{ fact: ProductFact }>(
     `/api/evidence/facts/${encodeURIComponent(factId)}/state`,
     { state, value: opts.value ?? null, note: opts.note ?? '' },
-    { timeoutMs: 20_000 },
+    { timeoutMs: 20_000, headers: evidenceHeaders(productId) },
   );
   return data.fact;
 }
 
-export async function deleteSource(sourceId: string): Promise<void> {
+export async function deleteSource(sourceId: string, productId = 'default-product'): Promise<void> {
   const res = await fetch(apiUrl(`/api/evidence/sources/${encodeURIComponent(sourceId)}`), {
     method: 'DELETE',
+    headers: evidenceHeaders(productId),
   });
   if (!res.ok) throw new ApiError('http', res.status);
 }
@@ -220,11 +253,12 @@ export async function runGate(
   drafts: unknown[],
   signal?: AbortSignal,
   sourcePoints = '',
+  productId = 'default-product',
 ): Promise<GateResponse> {
   return postJson<GateResponse>(
     '/api/evidence/gate',
     { drafts, source_points: sourcePoints },
-    { timeoutMs: 20_000, signal },
+    { timeoutMs: 20_000, signal, headers: evidenceHeaders(productId) },
   );
 }
 

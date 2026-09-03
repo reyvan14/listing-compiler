@@ -20,11 +20,19 @@ import logging
 import os
 import tempfile
 import threading
+from contextvars import ContextVar, Token
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("listing.evidence.store")
+
+# Evidence belongs to one browser workspace and one product.  The public demo
+# has no login system, so request-scoped, opaque browser ids prevent two judges
+# (or two products in the same browser) from sharing a mutable ledger by
+# accident.  These ids are isolation keys, not authentication credentials.
+_WORKSPACE: ContextVar[str] = ContextVar("listing_evidence_workspace", default="public")
+_PRODUCT: ContextVar[str] = ContextVar("listing_evidence_product", default="default-product")
 
 #: Upload ceiling. Large enough for a scanned manual, small enough to bound disk.
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -63,11 +71,26 @@ class EvidenceError(ValueError):
         super().__init__(message)
 
 
+def _scope_segment(value: str) -> str:
+    """Turn an untrusted request scope into a bounded filesystem segment."""
+    return hashlib.sha256((value or "").encode("utf-8")).hexdigest()[:24]
+
+
+def push_scope(workspace: str, product: str) -> tuple[Token[str], Token[str]]:
+    """Install request-local evidence scope; the caller must reset it."""
+    return _WORKSPACE.set(workspace or "public"), _PRODUCT.set(product or "default-product")
+
+
+def pop_scope(tokens: tuple[Token[str], Token[str]]) -> None:
+    _WORKSPACE.reset(tokens[0])
+    _PRODUCT.reset(tokens[1])
+
+
 def store_dir() -> Path:
-    """Where blobs and the index live. Override with LISTING_EVIDENCE_DIR."""
+    """Scoped evidence directory. Override its root with LISTING_EVIDENCE_DIR."""
     raw = os.environ.get("LISTING_EVIDENCE_DIR", "").strip()
     base = Path(raw) if raw else Path(__file__).resolve().parent.parent / "evidence_store"
-    return base
+    return base / "workspaces" / _scope_segment(_WORKSPACE.get()) / _scope_segment(_PRODUCT.get())
 
 
 def _index_path() -> Path:

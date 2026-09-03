@@ -46,6 +46,9 @@ export function useEvidenceGate(node: ListingResultNode | null, editor: Editor) 
   // operator typed into the truth source must be answerable even when this
   // platform's draft paraphrases it away.
   const sku = findSkuShape(editor);
+  const productId = sku
+    ? `${sku.id}|${sku.props.node.type === 'sku_listing' ? (sku.props.node as SkuListingNode).productName.trim().toLowerCase() : ''}`
+    : 'default-product';
   const sourcePoints =
     sku && sku.props.node.type === 'sku_listing'
       ? (sku.props.node as SkuListingNode).points
@@ -64,7 +67,7 @@ export function useEvidenceGate(node: ListingResultNode | null, editor: Editor) 
     }
     const controller = new AbortController();
     setGate(g => ({ ...g, status: 'loading' }));
-    runGate([nodeToDraft(node)], controller.signal, sourcePoints)
+    runGate([nodeToDraft(node)], controller.signal, sourcePoints, productId)
       .then(res => {
         const result = res.results.find(r => r.platform === platform) ?? res.results[0] ?? null;
         setGate({ status: 'ready', result, error: '' });
@@ -75,8 +78,8 @@ export function useEvidenceGate(node: ListingResultNode | null, editor: Editor) 
       });
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [platform, fingerprint, sourcePoints, nonce]);
+  }, [platform, fingerprint, sourcePoints, productId, nonce]);
 
   const reload = useCallback(() => setNonce(n => n + 1), []);
-  return { gate, reload };
+  return { gate, reload, productId };
 }

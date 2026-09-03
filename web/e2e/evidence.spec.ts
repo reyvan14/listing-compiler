@@ -22,10 +22,26 @@ async function waitForStation(page: Page) {
 /** Remove every stored document so specs cannot see each other's uploads. */
 async function clearLedger(page: Page) {
   await page.evaluate(async () => {
-    const res = await fetch('/api/evidence/sources');
+    const key = 'listing.evidence.workspace.v1';
+    let workspace = localStorage.getItem(key);
+    if (!workspace) {
+      workspace = crypto.randomUUID();
+      localStorage.setItem(key, workspace);
+    }
+    const sku = (window as unknown as { editor?: any }).editor
+      ?.getCurrentPageShapes()
+      .find((s: any) => s.props?.node?.type === 'sku_listing');
+    const rawProduct = sku
+      ? `${sku.id}|${String(sku.props.node.productName ?? '').trim().toLowerCase()}`
+      : 'default-product';
+    const headers = {
+      'X-Workspace-ID': workspace,
+      'X-Product-ID': encodeURIComponent(rawProduct).slice(0, 512),
+    };
+    const res = await fetch('/api/evidence/sources', { headers });
     const { data } = await res.json();
     for (const s of data.sources ?? []) {
-      await fetch(`/api/evidence/sources/${s.source_id}`, { method: 'DELETE' });
+      await fetch(`/api/evidence/sources/${s.source_id}`, { method: 'DELETE', headers });
     }
   });
 }
@@ -71,7 +87,21 @@ async function upload(page: Page, name: string, body: string, expiresOn = '') {
       form.append('file', new File([body], name, { type: 'text/plain' }));
       form.append('expires_on', expiresOn);
       form.append('label', '');
-      await fetch('/api/evidence/upload', { method: 'POST', body: form });
+      const key = 'listing.evidence.workspace.v1';
+      let workspace = localStorage.getItem(key);
+      if (!workspace) {
+        workspace = crypto.randomUUID();
+        localStorage.setItem(key, workspace);
+      }
+      const sku = (window as unknown as { editor: any }).editor
+        .getCurrentPageShapes()
+        .find((s: any) => s.props?.node?.type === 'sku_listing');
+      const rawProduct = `${sku.id}|${String(sku.props.node.productName ?? '').trim().toLowerCase()}`;
+      const headers = {
+        'X-Workspace-ID': workspace,
+        'X-Product-ID': encodeURIComponent(rawProduct).slice(0, 512),
+      };
+      await fetch('/api/evidence/upload', { method: 'POST', body: form, headers });
     },
     { name, body, expiresOn },
   );

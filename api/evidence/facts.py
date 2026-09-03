@@ -295,6 +295,12 @@ def set_fact_state(
                 "no_evidence",
                 "没有任何证据来源，无法标记为已核实。",
             )
+        source_values = {str(s.get("value")) for s in fact["sources"] if s.get("value") is not None}
+        if state == VERIFIED and len(source_values) > 1:
+            raise store.EvidenceError(
+                "conflicting_evidence",
+                "证据来源仍有冲突；请先移除错误来源，再确认事实。",
+            )
         fact["state"] = state
         if value is not None:
             fact["value"] = value
@@ -393,8 +399,11 @@ def delete_fact(fact_id: str) -> bool:
 
 def _expiry_of(link: dict[str, Any], sources_by_id: dict[str, dict[str, Any]]) -> str:
     return str(
-        link.get("expires_on")
-        or sources_by_id.get(str(link.get("source_id")), {}).get("expires_on")
+        # The source record is authoritative because an operator may correct
+        # its expiry after ingestion.  The copied link value is only a legacy
+        # fallback for older ledgers.
+        sources_by_id.get(str(link.get("source_id")), {}).get("expires_on")
+        or link.get("expires_on")
         or ""
     )
 

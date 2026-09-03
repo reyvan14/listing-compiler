@@ -32,10 +32,12 @@ import styles from './listingInspector.module.scss'
 export function EvidenceTab({
   node,
   gate,
+  productId,
   onLedgerChange,
 }: {
   node: ListingResultNode
   gate: GateState
+  productId: string
   onLedgerChange: () => void
 }) {
   const [facts, setFacts] = useState<ProductFact[]>([])
@@ -47,14 +49,14 @@ export function EvidenceTab({
 
   const reload = useCallback(async () => {
     try {
-      const [f, s] = await Promise.all([fetchFacts(), fetchSources()])
+      const [f, s] = await Promise.all([fetchFacts(productId), fetchSources(productId)])
       setFacts(f)
       setSources(s)
       setError('')
     } catch (err) {
       setError(toSafeMessage(err))
     }
-  }, [])
+  }, [productId])
 
   useEffect(() => {
     void reload()
@@ -66,7 +68,7 @@ export function EvidenceTab({
     setError('')
     try {
       for (const file of Array.from(files)) {
-        await uploadEvidence(file, { expiresOn })
+        await uploadEvidence(file, { expiresOn }, productId)
       }
       await reload()
       onLedgerChange()
@@ -82,7 +84,7 @@ export function EvidenceTab({
     setBusy(true)
     setError('')
     try {
-      await setFactState(fact.fact_id, state)
+      await setFactState(fact.fact_id, state, {}, productId)
       await reload()
       onLedgerChange()
     } catch (err) {
@@ -95,7 +97,7 @@ export function EvidenceTab({
   const removeSource = async (sourceId: string) => {
     setBusy(true)
     try {
-      await deleteSource(sourceId)
+      await deleteSource(sourceId, productId)
       await reload()
       onLedgerChange()
     } catch (err) {
@@ -182,7 +184,7 @@ export function EvidenceTab({
                     {link.excerpt && <span className={styles.excerpt}>「{link.excerpt}」</span>}
                   </p>
                 ))}
-                {fact.state !== 'verified' && fact.sources.length > 0 && (
+                {fact.state !== 'verified' && fact.state !== 'conflicting' && fact.sources.length > 0 && (
                   <button
                     type="button"
                     className={styles.copyBtn}
@@ -192,6 +194,9 @@ export function EvidenceTab({
                   >
                     确认为已核实
                   </button>
+                )}
+                {fact.state === 'conflicting' && (
+                  <p className={styles.gateError}>请先移除错误来源，再确认剩余事实。</p>
                 )}
                 {fact.state === 'verified' && (
                   <button

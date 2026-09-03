@@ -83,8 +83,11 @@ describe('uploadEvidence', () => {
     const body = init.body as FormData;
     expect(body.get('expires_on')).toBe('2027-01-01');
     expect((body.get('file') as File).name).toBe('spec.csv');
-    // multipart must not carry a hand-set Content-Type or the boundary is lost
-    expect(init.headers).toBeUndefined();
+    // multipart must not carry a hand-set Content-Type or the boundary is lost;
+    // opaque scope headers are safe and keep public-demo workspaces isolated.
+    expect(init.headers['Content-Type']).toBeUndefined();
+    expect(init.headers['X-Workspace-ID']).toBeTruthy();
+    expect(init.headers['X-Product-ID']).toBe('default-product');
   });
 
   it('surfaces the backend rejection message for an unsupported type', async () => {

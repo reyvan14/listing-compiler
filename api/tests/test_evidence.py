@@ -217,6 +217,22 @@ def test_verified_capacity_unblocks_only_the_capacity_claim():
     assert result["verdict"] == "blocked"
 
 
+def test_verified_capacity_does_not_authorize_a_different_numeric_value():
+    upload(SPEC_CSV, "spec.csv")  # evidence says 350 ml
+    client.post(
+        f"/api/evidence/facts/{facts.fact_id_for('capacity')}/state",
+        json={"state": "verified"},
+    )
+
+    claim = client.post(
+        "/api/evidence/gate", json={"drafts": [_draft("Travel Cup 500ml")]}
+    ).json()["data"]["results"][0]["fields"][0]["claims"][0]
+
+    assert claim["verdict"] == "blocked"
+    assert claim["state"] == "conflicting"
+    assert "不一致" in claim["detail"]
+
+
 def test_a_verified_claim_exposes_its_supporting_source_location():
     upload(SPEC_CSV, "spec.csv")
     client.post(
@@ -261,6 +277,17 @@ def test_conflicting_sources_mark_the_fact_and_block_its_claim():
     assert "矛盾" in claim["detail"]
 
 
+def test_conflicting_sources_cannot_be_confirmed_without_resolution():
+    upload(SPEC_CSV, "spec.csv")
+    upload(CONFLICT_CSV, "conflict.csv")
+    r = client.post(
+        f"/api/evidence/facts/{facts.fact_id_for('capacity')}/state",
+        json={"state": "verified"},
+    )
+    assert r.status_code == 400
+    assert r.json()["error"] == "conflicting_evidence"
+
+
 def test_a_conflict_does_not_contaminate_unrelated_facts():
     upload(MANUAL_TXT, "manual.txt")
     upload(CONFLICT_CSV, "conflict.csv")
@@ -303,6 +330,26 @@ def test_evidence_valid_in_the_future_is_not_treated_as_expired():
         facts.fact_id_for("food_grade_silicone")
     ]
     assert material["state"] == "needs_review"
+
+
+def test_correcting_a_source_expiry_updates_existing_fact_links():
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    src = upload(MANUAL_TXT, "cert.txt", expires_on=yesterday).json()["data"]["source"]
+    assert {f["fact_id"]: f for f in facts.list_facts()}[
+        facts.fact_id_for("food_grade_silicone")
+    ]["state"] == "expired"
+
+    r = client.post(
+        f"/api/evidence/sources/{src['source_id']}/expiry",
+        json={"expires_on": tomorrow},
+    )
+    assert r.status_code == 200
+    material = {f["fact_id"]: f for f in facts.list_facts()}[
+        facts.fact_id_for("food_grade_silicone")
+    ]
+    assert material["state"] == "needs_review"
+    assert {s["expires_on"] for s in material["sources"]} == {tomorrow}
 
 
 def test_deleting_a_source_demotes_the_facts_it_supported():
@@ -361,6 +408,23 @@ def test_upload_logs_never_contain_file_contents(caplog):
     blob = "\n".join(r.getMessage() for r in caplog.records)
     assert "INTERNAL-SUPPLIER-CODE" not in blob
     assert "sk-" not in blob
+
+
+def test_evidence_is_isolated_by_workspace_and_product_headers():
+    one = {"X-Workspace-ID": "browser-a", "X-Product-ID": "sku-a"}
+    other_product = {"X-Workspace-ID": "browser-a", "X-Product-ID": "sku-b"}
+    other_browser = {"X-Workspace-ID": "browser-b", "X-Product-ID": "sku-a"}
+
+    r = client.post(
+        "/api/evidence/upload",
+        headers=one,
+        files={"file": ("spec.csv", io.BytesIO(SPEC_CSV), "text/csv")},
+        data={"expires_on": "", "label": ""},
+    )
+    assert r.status_code == 200
+    assert len(client.get("/api/evidence/facts", headers=one).json()["data"]["facts"]) > 0
+    assert client.get("/api/evidence/facts", headers=other_product).json()["data"]["facts"] == []
+    assert client.get("/api/evidence/facts", headers=other_browser).json()["data"]["facts"] == []
 
 
 # --------------------------------------------------------------------------- #

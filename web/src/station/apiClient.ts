@@ -71,6 +71,8 @@ export type PostJsonOptions = {
   timeoutMs?: number;
   /** Caller cancellation. */
   signal?: AbortSignal;
+  /** Additional non-secret request headers (for example an isolation scope). */
+  headers?: Record<string, string>;
 };
 
 type Envelope<T> = { code?: number; error?: string; message?: string; data?: T };
@@ -91,7 +93,7 @@ export async function postJson<T>(
   payload: unknown,
   opts: PostJsonOptions = {},
 ): Promise<T> {
-  const { timeoutMs = 60_000, signal } = opts;
+  const { timeoutMs = 60_000, signal, headers = {} } = opts;
   const controller = new AbortController();
   let timedOut = false;
 
@@ -106,7 +108,7 @@ export async function postJson<T>(
   try {
     res = await fetch(apiUrl(path), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });

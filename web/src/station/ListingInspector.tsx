@@ -89,7 +89,7 @@ export function ListingInspector({ editor }: { editor: Editor }) {
 
   // Evidence verdicts for the open card. Fetched once and shared by the
   // Compliance and Evidence tabs so switching between them costs nothing.
-  const { gate, reload: reloadGate } = useEvidenceGate(open ? node : null, editor)
+  const { gate, reload: reloadGate, productId } = useEvidenceGate(open ? node : null, editor)
 
   const close = useCallback(() => closeListingInspector(editor), [editor])
 
@@ -218,7 +218,7 @@ export function ListingInspector({ editor }: { editor: Editor }) {
           {tab === 'content' && <ContentTab node={node} />}
           {tab === 'compliance' && <ComplianceTab node={node} gate={gate} />}
           {tab === 'evidence' && (
-            <EvidenceTab node={node} gate={gate} onLedgerChange={reloadGate} />
+            <EvidenceTab node={node} gate={gate} productId={productId} onLedgerChange={reloadGate} />
           )}
           {tab === 'policy' && <PolicyTab node={node} />}
         </div>

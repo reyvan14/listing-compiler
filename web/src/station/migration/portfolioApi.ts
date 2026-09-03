@@ -159,7 +159,7 @@ export async function applyPortfolio(payload: {
 export async function rollbackPortfolio(
   snapshot: unknown,
   sku?: string,
-): Promise<{ scope: string; artifacts: Record<string, unknown[]> }> {
+): Promise<{ scope: string; artifacts: PortfolioAnalysis['artifacts'] }> {
   return postJson('/api/portfolio/rollback', { snapshot, sku: sku ?? null }, { timeoutMs: 30_000 });
 }
 
@@ -173,6 +173,7 @@ export async function downloadBatchReport(payload: {
   applyResult?: ApplyResult | null;
   status: string;
   approver?: string;
+  rollback?: { scope: string; artifacts: PortfolioAnalysis['artifacts'] } | null;
 }): Promise<void> {
   const report = await postJson<Record<string, unknown>>(
     '/api/portfolio/report',
@@ -181,6 +182,7 @@ export async function downloadBatchReport(payload: {
       apply_result: payload.applyResult ?? null,
       status: payload.status,
       approver: payload.approver ?? '',
+      rollback: payload.rollback ?? null,
     },
     { timeoutMs: 30_000 },
   );

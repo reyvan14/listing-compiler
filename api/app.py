@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, File, Form, Query, UploadFile
+from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -32,6 +32,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def scope_evidence_ledger(request: Request, call_next):
+    """Keep the public demo's mutable evidence data browser/product isolated."""
+    if not request.url.path.startswith("/api/evidence"):
+        return await call_next(request)
+    tokens = evidence.store.push_scope(
+        request.headers.get("x-workspace-id", "public"),
+        request.headers.get("x-product-id", "default-product"),
+    )
+    try:
+        return await call_next(request)
+    finally:
+        evidence.store.pop_scope(tokens)
 
 
 class GenerateBody(BaseModel):
@@ -116,6 +131,11 @@ def _evidence_error(exc: evidence.EvidenceError) -> JSONResponse:
     )
 
 
+async def _read_bounded_upload(file: UploadFile) -> bytes:
+    """Never materialise an unbounded public upload in process memory."""
+    return await file.read(evidence.store.MAX_UPLOAD_BYTES + 1)
+
+
 @app.post("/api/evidence/upload")
 async def evidence_upload(
     file: UploadFile = File(...),
@@ -128,7 +148,7 @@ async def evidence_upload(
     become fact links, and nothing about the upload is logged except its id,
     family and size.
     """
-    data = await file.read()
+    data = await _read_bounded_upload(file)
     try:
         source = evidence.store.put_source(
             filename=file.filename or "upload",
@@ -295,7 +315,7 @@ def portfolio_template():
 @app.post("/api/portfolio/import")
 async def portfolio_import(file: UploadFile = File(...)):
     """Parse a CSV/XLSX portfolio. Malformed rows are reported, not fatal."""
-    data = await file.read()
+    data = await _read_bounded_upload(file)
     name = (file.filename or "").lower()
     family = "xlsx" if name.endswith(".xlsx") else "csv"
     if not name.endswith((".csv", ".xlsx")):

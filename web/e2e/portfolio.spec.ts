@@ -107,6 +107,7 @@ test('safe patches apply in bulk and only touch the affected SKU', async ({ page
   const result = page.getByTestId('apply-result');
   await expect(result).toContainText('AERO-LEGACY');
   await expect(page.locator('#portfolio-status')).toContainText('已应用');
+  await expect(page.locator('[data-testid="matrix-row"][data-status="applied"]')).toHaveCount(1);
   await page.screenshot({ path: `${SHOTS}/${testInfo.project.name}-portfolio-03-applied.png` });
 });
 
@@ -137,12 +138,19 @@ test('an individual SKU and the whole batch can both be rolled back', async ({ p
 
   await page.locator('[data-testid="rollback-one"][data-sku="AERO-LEGACY"]').click();
   await expect(page.locator('#portfolio-status')).toContainText('已回滚');
+  await expect(
+    page.locator('[data-testid="matrix-row"][data-status="rolled_back"]').filter({ hasText: 'AERO-LEGACY' }),
+  ).toHaveCount(1);
 
-  // and the batch-level rollback is available too
+  // Re-run and apply a fresh migration before testing the batch rollback. A
+  // rollback button must not be enabled for a candidate that was never applied.
   await page.click('#portfolio-analyze');
   await page.waitForSelector('#portfolio-matrix');
+  await page.click('#portfolio-apply-safe');
+  await page.waitForSelector('[data-testid="apply-result"]');
   await page.click('#portfolio-rollback-batch');
   await expect(page.locator('#portfolio-status')).toContainText('已回滚');
+  await expect(page.locator('[data-testid="matrix-row"][data-status="applied"]')).toHaveCount(0);
 });
 
 test('the audit report downloads as JSON', async ({ page }) => {

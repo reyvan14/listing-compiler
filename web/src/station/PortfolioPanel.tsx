@@ -36,6 +36,8 @@ const STATUS_ORDER: RowStatus[] = [
   'safe_patch',
   'review_required',
   'blocked',
+  'applied',
+  'rolled_back',
   'unaffected',
 ]
 
@@ -44,6 +46,12 @@ export function PortfolioPanel({ onClose }: { onClose: () => void }) {
   const [analysis, setAnalysis] = useState<PortfolioAnalysis | null>(null)
   const [applyResult, setApplyResult] = useState<ApplyResult | null>(null)
   const [snapshot, setSnapshot] = useState<unknown>(null)
+  const [workingArtifacts, setWorkingArtifacts] = useState<PortfolioAnalysis['artifacts'] | null>(null)
+  const [rowStatus, setRowStatus] = useState<Record<string, RowStatus>>({})
+  const [rollbackResult, setRollbackResult] = useState<{
+    scope: string
+    artifacts: PortfolioAnalysis['artifacts']
+  } | null>(null)
   const [phase, setPhase] = useState<Phase>('idle')
   const [busy, setBusy] = useState<Busy>('')
   const [error, setError] = useState('')
@@ -52,7 +60,12 @@ export function PortfolioPanel({ onClose }: { onClose: () => void }) {
   const [driftCapacity, setDriftCapacity] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const matrix = analysis?.matrix ?? []
+  const rawMatrix = analysis?.matrix ?? []
+  const rowKey = (r: MatrixRow) => `${r.sku}|${r.artifact_id}|${r.field}`
+  const matrix = useMemo(
+    () => rawMatrix.map(r => ({ ...r, status: rowStatus[rowKey(r)] ?? r.status })),
+    [rawMatrix, rowStatus],
+  )
   const visible = useMemo(
     () =>
       matrix.filter(
@@ -75,6 +88,9 @@ export function PortfolioPanel({ onClose }: { onClose: () => void }) {
       setImported(res)
       setAnalysis(null)
       setApplyResult(null)
+      setWorkingArtifacts(null)
+      setRowStatus({})
+      setRollbackResult(null)
       setPhase('imported')
     } catch (err) {
       setError(toSafeMessage(err))
@@ -105,7 +121,10 @@ export function PortfolioPanel({ onClose }: { onClose: () => void }) {
       })
       setAnalysis(res)
       setSnapshot(snapshotPortfolio(res.artifacts))
+      setWorkingArtifacts(res.artifacts)
+      setRowStatus({})
       setApplyResult(null)
+      setRollbackResult(null)
       setPhase('analyzed')
     } catch (err) {
       setError(toSafeMessage(err))
@@ -115,16 +134,32 @@ export function PortfolioPanel({ onClose }: { onClose: () => void }) {
   }
 
   const onApplySafe = async () => {
-    if (!analysis || safe.length === 0) return
+    if (!analysis || !workingArtifacts || safe.length === 0) return
     setBusy('apply')
     setError('')
     try {
       const res = await applyPortfolio({
-        artifacts: analysis.artifacts,
+        artifacts: workingArtifacts,
         approved: safe,
         candidatePolicyVersion: analysis.policy.candidate_version ?? undefined,
       })
       setApplyResult(res)
+      setWorkingArtifacts(
+        Object.fromEntries(
+          Object.entries(res.results).map(([sku, result]) => [sku, result.artifacts]),
+        ),
+      )
+      const appliedIds = new Set(
+        Object.values(res.results).flatMap(result => result.applied),
+      )
+      setRowStatus(previous => {
+        const next = { ...previous }
+        for (const row of safe) {
+          if (appliedIds.has(row.artifact_id)) next[rowKey(row)] = 'applied'
+        }
+        return next
+      })
+      setRollbackResult(null)
       setPhase('applied')
     } catch (err) {
       setError(toSafeMessage(err))
@@ -138,8 +173,28 @@ export function PortfolioPanel({ onClose }: { onClose: () => void }) {
     setBusy('rollback')
     setError('')
     try {
-      await rollbackPortfolio(snapshot, sku)
-      setApplyResult(null)
+      const restored = await rollbackPortfolio(snapshot, sku)
+      setWorkingArtifacts(current => ({ ...(current ?? {}), ...restored.artifacts }))
+      setRowStatus(previous => {
+        const next = { ...previous }
+        for (const row of rawMatrix) {
+          if ((!sku || row.sku === sku) && previous[rowKey(row)] === 'applied') {
+            next[rowKey(row)] = 'rolled_back'
+          }
+        }
+        return next
+      })
+      setApplyResult(current => {
+        if (!current || !sku) return null
+        return {
+          ...current,
+          applied_skus: current.applied_skus.filter(item => item !== sku),
+          results: Object.fromEntries(
+            Object.entries(current.results).filter(([item]) => item !== sku),
+          ),
+        }
+      })
+      setRollbackResult(restored)
       setPhase('rolled-back')
     } catch (err) {
       setError(toSafeMessage(err))
@@ -156,6 +211,7 @@ export function PortfolioPanel({ onClose }: { onClose: () => void }) {
         analysis,
         applyResult,
         status: phase === 'applied' ? 'applied' : phase === 'rolled-back' ? 'rolled_back' : 'candidate',
+        rollback: rollbackResult,
       })
     } catch (err) {
       setError(toSafeMessage(err))
@@ -164,7 +220,17 @@ export function PortfolioPanel({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const su = analysis?.summary
+  const su = useMemo(() => {
+    if (!analysis) return null
+    return {
+      ...analysis.summary,
+      safe_patch: matrix.filter(r => r.status === 'safe_patch').length,
+      review_required: matrix.filter(r => r.status === 'review_required').length,
+      blocked: matrix.filter(r => r.status === 'blocked').length,
+      applied: matrix.filter(r => r.status === 'applied').length,
+      rolled_back: matrix.filter(r => r.status === 'rolled_back').length,
+    }
+  }, [analysis, matrix])
 
   return (
     <div
@@ -272,6 +338,8 @@ export function PortfolioPanel({ onClose }: { onClose: () => void }) {
               <Stat label="可安全修补" value={su.safe_patch} tone="ok" />
               <Stat label="需人工" value={su.review_required} tone="warn" />
               <Stat label="阻断" value={su.blocked} tone="danger" />
+              {su.applied > 0 && <Stat label="已应用" value={su.applied} tone="ok" />}
+              {su.rolled_back > 0 && <Stat label="已回滚" value={su.rolled_back} />}
             </div>
             <p className={styles.rulesNote}>
               受影响平台：{su.affected_platforms.join('、') || '—'}
@@ -368,7 +436,7 @@ export function PortfolioPanel({ onClose }: { onClose: () => void }) {
                 type="button"
                 className={styles.btnGhost}
                 id="portfolio-rollback-batch"
-                disabled={busy !== '' || !snapshot}
+                disabled={busy !== '' || !snapshot || phase !== 'applied'}
                 onClick={() => onRollback()}
               >
                 回滚整批
