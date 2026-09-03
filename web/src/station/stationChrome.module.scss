@@ -416,3 +416,41 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* ---- streaming: stop button, warnings, generation progress ---- */
+
+.agentStop {
+  align-self: flex-end;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid #6f6855;
+  border-radius: 6px;
+  background: #1f1d18;
+  color: #ffce7a;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.agentStop:hover {
+  background: #26231c;
+}
+
+.agentWarning {
+  max-width: 92%;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 194, 73, 0.35);
+  border-radius: 10px;
+  background: rgba(255, 194, 73, 0.1);
+  color: #ffce7a;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agentProgress {
+  margin-top: 6px;
+  color: #ffce7a;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}

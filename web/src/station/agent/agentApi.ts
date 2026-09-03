@@ -1,6 +1,14 @@
 import { postJson } from '../apiClient';
-import { AGENT_NODE_TYPES, AGENT_OPERATION_TYPES, type AgentCanvasContext, type AgentPlan } from './types';
+import {
+  AGENT_NODE_TYPES,
+  AGENT_OPERATION_TYPES,
+  type AgentCanvasContext,
+  type AgentPlan,
+  type PlanRationale,
+} from './types';
 import { containsMediaPayload } from './canvasContext';
+import { SseParser, eventPayload } from './sse';
+import { isTraceStage, type TraceStage } from './trace';
 
 // Wire layer for /api/agent/chat. Its job is to make sure that whatever comes
 // back is shaped like a plan before any other module sees it — an unparseable
@@ -43,6 +51,52 @@ export function coercePlan(raw: unknown): AgentPlan | null {
     warnings: Array.isArray(p.warnings) ? p.warnings.filter(w => typeof w === 'string') : [],
     requiresRunConfirmation: p.requiresRunConfirmation !== false,
     operations: p.operations as AgentPlan['operations'],
+    rationale: coerceRationale(p.rationale),
+  };
+}
+
+/**
+ * The structured "为什么这样规划" block.
+ *
+ * Every field is a short, typed value the backend derived from the validated
+ * plan. There is no free-text field, which is what makes it impossible for
+ * model reasoning to arrive here disguised as an explanation.
+ */
+export function coerceRationale(raw: unknown): PlanRationale | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const strings = (value: unknown) =>
+    Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+  const count = (value: unknown) =>
+    typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+
+  const nodes = Array.isArray(r.nodes)
+    ? r.nodes
+        .filter((n): n is Record<string, unknown> => !!n && typeof n === 'object')
+        .map(n => ({
+          ref: String(n.ref ?? ''),
+          nodeType: String(n.nodeType ?? ''),
+          purpose: String(n.purpose ?? ''),
+          aspectRatio: typeof n.aspectRatio === 'string' ? n.aspectRatio : undefined,
+          duration: typeof n.duration === 'string' ? n.duration : undefined,
+        }))
+        .slice(0, 12)
+    : [];
+
+  return {
+    intent: strings(r.intent).slice(0, 8),
+    platforms: strings(r.platforms).slice(0, 6),
+    source: r.source === 'model' ? 'model' : 'template',
+    nodes,
+    nodeCount: count(r.nodeCount),
+    updatedNodeCount: count(r.updatedNodeCount),
+    connectionCount: count(r.connectionCount),
+    warnings: strings(r.warnings).slice(0, 10),
+    estimatedModelCalls: count(r.estimatedModelCalls),
+    requiresRunConfirmation: r.requiresRunConfirmation === true,
+    runTargets: strings(r.runTargets).slice(0, 16),
+    publishes: r.publishes === true,
+    publishNote: typeof r.publishNote === 'string' ? r.publishNote : '',
   };
 }
 
@@ -63,4 +117,169 @@ export async function askAgent(
   );
   if (!data.reply) throw new Error('empty reply');
   return { reply: data.reply, plan: coercePlan(data.plan) };
+}
+
+
+// --------------------------------------------------------------------------
+// Streaming
+// --------------------------------------------------------------------------
+
+
+export type AgentStreamHandlers = {
+  onMeta?: (requestId: string) => void;
+  onStatus?: (status: {
+    stage: TraceStage;
+    label: string;
+    detail: string;
+    sequence: number;
+  }) => void;
+  onDelta?: (text: string) => void;
+  onWarning?: (message: string) => void;
+  onPlan?: (plan: AgentPlan) => void;
+  onError?: (error: { category: string; message: string; retryable: boolean }) => void;
+};
+
+export type AgentStreamResult = {
+  /** True once any delta/status/plan/warning arrived. */
+  meaningful: boolean;
+  /** Set when the endpoint itself is unusable and a fallback is allowed. */
+  unsupported: boolean;
+  reply: string;
+  plan: AgentPlan | null;
+};
+
+const STREAM_URL = '/api/agent/chat/stream';
+
+/**
+ * Stream one Agent turn.
+ *
+ * Returns `unsupported: true` only when the endpoint is missing or answers
+ * with the wrong content type AND nothing meaningful has been delivered — that
+ * is the sole condition under which the caller may retry the older endpoint.
+ * Once a single delta, status or plan has arrived, an automatic retry would
+ * duplicate visible text and spend a second model call, so it is refused and
+ * the user gets an explicit retry action instead.
+ */
+export async function streamAgent(
+  messages: AgentTurn[],
+  context: AgentCanvasContext,
+  handlers: AgentStreamHandlers,
+  signal: AbortSignal,
+): Promise<AgentStreamResult> {
+  if (containsMediaPayload(context)) {
+    throw new Error('画布上下文里混入了图片数据，已中止发送。');
+  }
+
+  const result: AgentStreamResult = {
+    meaningful: false,
+    unsupported: false,
+    reply: '',
+    plan: null,
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(STREAM_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify({ messages, context }),
+      signal,
+    });
+  } catch (err) {
+    if (signal.aborted) throw err;
+    // The request never landed, so nothing has been shown: a fallback is safe.
+    result.unsupported = true;
+    return result;
+  }
+
+  const contentType = response.headers.get('content-type') ?? '';
+  if (response.status === 404 || response.status === 405 || !response.body) {
+    result.unsupported = true;
+    return result;
+  }
+  if (!contentType.includes('text/event-stream')) {
+    result.unsupported = true;
+    return result;
+  }
+  if (!response.ok) {
+    result.unsupported = true;
+    return result;
+  }
+
+  const parser = new SseParser();
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  const handle = (event: { event: string; data: string }) => {
+    const payload = eventPayload(event);
+    switch (event.event) {
+      case 'meta':
+        if (payload && typeof payload.requestId === 'string') handlers.onMeta?.(payload.requestId);
+        break;
+      case 'status': {
+        if (!payload || !isTraceStage(payload.stage)) return;
+        result.meaningful = true;
+        handlers.onStatus?.({
+          stage: payload.stage,
+          label: typeof payload.label === 'string' ? payload.label : '',
+          detail: typeof payload.detail === 'string' ? payload.detail : '',
+          sequence: typeof payload.sequence === 'number' ? payload.sequence : 0,
+        });
+        break;
+      }
+      case 'delta': {
+        const text = payload && typeof payload.text === 'string' ? payload.text : '';
+        if (!text) return;
+        result.meaningful = true;
+        result.reply += text;
+        handlers.onDelta?.(text);
+        break;
+      }
+      case 'warning': {
+        const message = payload && typeof payload.message === 'string' ? payload.message : '';
+        if (!message) return;
+        result.meaningful = true;
+        handlers.onWarning?.(message);
+        break;
+      }
+      case 'plan': {
+        // Only a complete, coercible plan becomes actionable. A partial or
+        // malformed one is dropped rather than rendered with buttons.
+        const plan = payload ? coercePlan(payload.plan) : null;
+        if (!plan) return;
+        result.meaningful = true;
+        result.plan = plan;
+        handlers.onPlan?.(plan);
+        break;
+      }
+      case 'error': {
+        if (!payload) return;
+        result.meaningful = true;
+        handlers.onError?.({
+          category: typeof payload.category === 'string' ? payload.category : 'unknown',
+          message:
+            typeof payload.message === 'string' ? payload.message : 'Agent 调用失败，请重试。',
+          retryable: payload.retryable !== false,
+        });
+        break;
+      }
+      // heartbeat / done need no handling beyond keeping the socket alive
+      default:
+        break;
+    }
+  };
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      for (const event of parser.push(decoder.decode(value, { stream: true }))) handle(event);
+    }
+    for (const event of parser.flush()) handle(event);
+  } finally {
+    // Abort or early return must not leave the body half-read.
+    reader.cancel().catch(() => {});
+  }
+
+  return result;
 }

@@ -70,6 +70,36 @@ export type AgentOperation =
   | { type: 'focus_nodes'; nodeIds: string[] }
   | { type: 'run_nodes'; nodeIds: string[] };
 
+/**
+ * The structured "为什么这样规划" block.
+ *
+ * Composed entirely of typed, verifiable fields derived from the validated
+ * plan. There is deliberately no free-text field: hidden model reasoning has
+ * nowhere to live, so the section can never become a chain-of-thought render.
+ */
+export type PlanRationale = {
+  intent: string[];
+  platforms: string[];
+  /** Which planner produced this: the audited template, or the model. */
+  source: 'template' | 'model';
+  nodes: Array<{
+    ref: string;
+    nodeType: string;
+    purpose: string;
+    aspectRatio?: string;
+    duration?: string;
+  }>;
+  nodeCount: number;
+  updatedNodeCount: number;
+  connectionCount: number;
+  warnings: string[];
+  estimatedModelCalls: number;
+  requiresRunConfirmation: boolean;
+  runTargets: string[];
+  publishes: boolean;
+  publishNote: string;
+};
+
 export type AgentPlan = {
   id: string;
   title: string;
@@ -78,6 +108,7 @@ export type AgentPlan = {
   warnings: string[];
   requiresRunConfirmation: boolean;
   operations: AgentOperation[];
+  rationale?: PlanRationale | null;
 };
 
 /** Lifecycle of a plan card. The Agent never claims a state it is not in. */

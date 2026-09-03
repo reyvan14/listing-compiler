@@ -231,3 +231,64 @@
   font-size: 12px;
   white-space: nowrap;
 }
+
+/* ---- 为什么这样规划 ---- */
+
+.why {
+  margin: 8px 12px 0;
+  border-top: 1px solid #2b2822;
+}
+
+.whyToggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 0;
+  border: 0;
+  background: none;
+  color: #b7b2a5;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.whyToggle:hover {
+  color: #fffdfa;
+}
+
+.whyBody {
+  padding: 0 0 6px;
+}
+
+.whyRow {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.whyLabel {
+  flex: none;
+  width: 92px;
+  color: #8f8a7d;
+}
+
+.whyValue {
+  flex: 1;
+  min-width: 0;
+  color: #d5d1c8;
+  overflow-wrap: anywhere;
+}
+
+.whyList {
+  margin: 0;
+  padding-left: 14px;
+}
+
+.whyList li + li {
+  margin-top: 2px;
+}

@@ -250,7 +250,9 @@ test('P0.4 Agent backend unreachable shows a safe Chinese message and Retry reco
   await waitForStation(page);
   await ensureAgentOpen(page);
 
-  await page.route('**/api/agent/chat', route => route.abort('failed'));
+  // Both endpoints: the panel tries the streaming route first and only falls
+  // back to the plain one, so blocking a single path is not "unreachable".
+  await page.route('**/api/agent/chat**', route => route.abort('failed'));
   const input = page.locator('aside[aria-label="Agent 对话"] textarea');
   await input.fill('主图能加字吗');
   await input.press('Enter');
@@ -260,7 +262,7 @@ test('P0.4 Agent backend unreachable shows a safe Chinese message and Retry reco
   await expect(retry).toBeVisible();
   await expect(page.locator('aside[aria-label="Agent 对话"]')).not.toContainText('Failed to fetch');
 
-  await page.unroute('**/api/agent/chat');
+  await page.unroute('**/api/agent/chat**');
   await retry.click();
   // real backend, no TOKEN_PLAN key -> deterministic Chinese keyword fallback
   await expect(page.locator('aside[aria-label="Agent 对话"]')).toContainText('白底', { timeout: 10_000 });

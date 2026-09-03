@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import styles from './agentPlan.module.scss';
+import { PlanRationaleSection } from './PlanRationaleSection';
 import { planCounts, planRows } from './planSummary';
 import type { AgentPlan, PlanState } from './types';
 
@@ -104,6 +105,8 @@ export function AgentPlanCard({
           ))}
         </ul>
       )}
+
+      {plan.rationale && <PlanRationaleSection rationale={plan.rationale} />}
 
       {confirmingRun ? (
         <div className={styles.confirm} role="alertdialog" aria-label="确认运行">

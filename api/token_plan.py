@@ -347,3 +347,209 @@ async def chat_completion(
 
     logger.info("token_plan request ok request_id=%s status=%s", request_id, status)
     return content
+
+
+# --------------------------------------------------------------------------- #
+# Streaming chat completions                                                   #
+#                                                                              #
+# Same endpoint and same credentials as ``chat_completion``, with              #
+# ``stream: true``. The provider answers with an SSE body whose frames may be  #
+# split across arbitrary network chunks, so the parser below is byte-boundary  #
+# agnostic: it buffers until it sees a frame terminator and never assumes a    #
+# chunk contains a whole frame — or only one.                                  #
+#                                                                              #
+# The same logging rules apply: no prompts, no output text, no key, no headers.#
+# --------------------------------------------------------------------------- #
+
+#: Frames are separated by a blank line. Providers differ on line endings, so
+#: both are accepted and CR is stripped before parsing.
+_SSE_TERMINATORS = ("\r\n\r\n", "\n\n")
+
+
+def iter_sse_frames(buffer: str) -> "tuple[list[str], str]":
+    """Split *buffer* into complete SSE frames plus the unconsumed remainder.
+
+    Pure and synchronous so the fragmentation behaviour can be tested directly
+    without a transport. A frame is everything up to the first blank line.
+    """
+    frames: list[str] = []
+    while True:
+        cut = -1
+        width = 0
+        for terminator in _SSE_TERMINATORS:
+            found = buffer.find(terminator)
+            if found != -1 and (cut == -1 or found < cut):
+                cut, width = found, len(terminator)
+        if cut == -1:
+            return frames, buffer
+        frames.append(buffer[:cut])
+        buffer = buffer[cut + width :]
+
+
+def sse_frame_data(frame: str) -> str:
+    """Concatenate the ``data:`` lines of one SSE frame.
+
+    Comment lines (``:`` heartbeats) and unknown fields are ignored, which is
+    what the SSE spec requires and what keeps provider heartbeats harmless.
+    """
+    parts: list[str] = []
+    for line in frame.replace("\r\n", "\n").split("\n"):
+        if not line or line.startswith(":"):
+            continue
+        if line.startswith("data:"):
+            parts.append(line[5:].lstrip())
+    return "\n".join(parts)
+
+
+def _delta_text(payload: Any) -> str:
+    """Assistant text out of one streamed chunk.
+
+    ``reasoning_content`` is deliberately ignored: the product must never render
+    or store the model's hidden reasoning, so it is dropped at the boundary
+    rather than filtered later.
+    """
+    if not isinstance(payload, dict):
+        return ""
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    first = choices[0]
+    if not isinstance(first, dict):
+        return ""
+    delta = first.get("delta")
+    if not isinstance(delta, dict):
+        # Some providers repeat the full message on the terminal chunk.
+        message = first.get("message")
+        delta = message if isinstance(message, dict) else {}
+    content = delta.get("content")
+    if isinstance(content, list):
+        content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+    if content is None:
+        return ""
+    return str(content)
+
+
+async def chat_completion_stream(
+    messages: list[dict[str, Any]],
+    *,
+    model: str | None = None,
+    timeout: "httpx.Timeout | float | None" = None,
+):
+    """Yield assistant text fragments from a streaming chat completion.
+
+    Raises :class:`TokenPlanError` with the same categories and the same
+    sanitized ``str()`` as :func:`chat_completion`.
+
+    Cancellation of the consuming task propagates into the httpx stream: the
+    ``async with`` blocks below unwind and close the connection, so a user who
+    presses 停止 actually stops the upstream request rather than leaving it
+    running to completion.
+    """
+    request_id = _new_request_id()
+
+    if not isinstance(messages, list) or not messages:
+        raise TokenPlanError("config", request_id=request_id, hint="empty messages")
+
+    key = api_key()
+    if not key:
+        raise TokenPlanError(
+            "config", request_id=request_id, hint="TOKEN_PLAN_API_KEY not set"
+        )
+
+    base = base_url()
+    if not base:
+        raise TokenPlanError("config", request_id=request_id, hint="base url not set")
+
+    payload = {
+        "model": model or agent_model(),
+        "messages": messages,
+        "stream": True,
+    }
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+    }
+
+    produced = 0
+    try:
+        async with _make_client(_resolve_timeout(timeout)) as client:
+            async with client.stream(
+                "POST", _endpoint(base), headers=headers, json=payload
+            ) as resp:
+                status = resp.status_code
+                if status < 200 or status >= 300:
+                    # Drain so the connection can be reused/closed cleanly. The
+                    # body may carry provider detail; it is never logged.
+                    await resp.aread()
+                    logger.warning(
+                        "token_plan stream failed request_id=%s status=%s category=%s",
+                        request_id, status, "http_status",
+                    )
+                    raise TokenPlanError(
+                        "http_status", request_id=request_id, status=status
+                    )
+
+                buffer = ""
+                async for chunk in resp.aiter_text():
+                    if not chunk:
+                        continue
+                    buffer += chunk
+                    frames, buffer = iter_sse_frames(buffer)
+                    for frame in frames:
+                        data = sse_frame_data(frame)
+                        if not data:
+                            continue
+                        if data.strip() == "[DONE]":
+                            logger.info(
+                                "token_plan stream ok request_id=%s status=%s",
+                                request_id, status,
+                            )
+                            return
+                        try:
+                            parsed = json.loads(data)
+                        except (json.JSONDecodeError, ValueError):
+                            # A malformed chunk is skipped, not fatal: the rest
+                            # of the stream is usually fine and the caller has
+                            # already shown the user real text.
+                            continue
+                        text = _delta_text(parsed)
+                        if text:
+                            produced += len(text)
+                            yield text
+
+                # The provider ended without [DONE]. Trailing bytes may still
+                # hold one unterminated frame.
+                tail = sse_frame_data(buffer)
+                if tail and tail.strip() != "[DONE]":
+                    try:
+                        text = _delta_text(json.loads(tail))
+                    except (json.JSONDecodeError, ValueError):
+                        text = ""
+                    if text:
+                        produced += len(text)
+                        yield text
+    except TokenPlanError:
+        raise
+    except httpx.TimeoutException:
+        logger.warning(
+            "token_plan stream failed request_id=%s status=%s category=%s produced=%s",
+            request_id, None, "timeout", bool(produced),
+        )
+        raise TokenPlanError("timeout", request_id=request_id) from None
+    except httpx.RequestError:
+        logger.warning(
+            "token_plan stream failed request_id=%s status=%s category=%s produced=%s",
+            request_id, None, "network", bool(produced),
+        )
+        raise TokenPlanError("network", request_id=request_id) from None
+
+    if produced == 0:
+        logger.warning(
+            "token_plan stream failed request_id=%s status=%s category=%s",
+            request_id, None, "invalid_response",
+        )
+        raise TokenPlanError(
+            "invalid_response", request_id=request_id, hint="no streamed content"
+        )
+    logger.info("token_plan stream ok request_id=%s", request_id)

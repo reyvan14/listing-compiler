@@ -288,11 +288,20 @@ _ACTION_WORDS = (
 )
 
 #: Questions stay questions even when they contain an action word.
-_QUESTION_MARKERS = ("吗", "呢", "？", "?", "如何", "怎么", "为什么", "是不是", "能不能")
+_QUESTION_MARKERS = ("吗", "呢", "？", "?", "如何", "怎么", "什么", "是不是", "能不能")
+
+
+#: Noun phrases that are requests on their own. "三平台完整工作流（含短视频）"
+#: carries no verb but is unambiguously an instruction, not a question — it is
+#: exactly what the quick-action buttons send.
+_STANDALONE_REQUESTS = ("完整工作流", "完整上新工作流", "上新工作流", "全流程")
 
 
 def _has_action(text: str) -> bool:
     t = (text or "").lower()
+    is_question = any(marker in t for marker in _QUESTION_MARKERS)
+    if not is_question and any(phrase in t for phrase in _STANDALONE_REQUESTS):
+        return True
     if not any(word in t for word in _ACTION_WORDS):
         return False
     # "怎么创建一个图片节点" is guidance-seeking; "创建一个图片节点" is a request.
@@ -307,6 +316,10 @@ def _intent(text: str) -> set[str]:
     tags: set[str] = set()
     if any(k in t for k in ("完整", "全流程", "工作流", "上新流程", "workflow")):
         tags.add("full_workflow")
+    # "三平台 / 三台 / 全部平台" names every shelf at once; without this the
+    # short form would fall through to the Amazon-only default.
+    if any(k in t for k in ("三平台", "三台", "三个平台", "全部平台", "所有平台", "all platforms")):
+        tags.update({"amazon", "tiktok", "shopify"})
     if "amazon" in t or "亚马逊" in t:
         tags.add("amazon")
     if "tiktok" in t or "抖音" in t:
@@ -439,7 +452,6 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
         )
         creates.append(sku_ref)
 
-    row = 0
     if want_amazon:
         ops.append(
             {
@@ -465,7 +477,6 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
             }
         )
         creates.append("img_amazon")
-        row += 1
 
     if want_tiktok:
         ops.append(
@@ -521,7 +532,6 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
                 }
             )
             creates.append("vid_tiktok")
-        row += 1
 
     if want_shopify:
         ops.append(
@@ -559,19 +569,21 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
     if "evidence" in tags or "证据" in (text or ""):
         warnings.append("发布闸门仍会独立校验每条宣称，无证据的宣称不会被放行。")
 
-    # Running from the SKU root reuses the existing execution graph, which
-    # generates the three platform listings first and then walks each media
-    # branch. Merely applying the plan still does not run anything.
-    ops.append({"type": "run_nodes", "nodeIds": [sku_ref]})
-
     platforms = [
         name
         for name, want in (("Amazon", want_amazon), ("TikTok Shop", want_tiktok), ("Shopify", want_shopify))
         if want
     ]
     created_nodes = len(creates)
+    # Run from the SKU root only. ExecutionGraph walks downstream from its
+    # starting set, so one root covers the whole branch — and naming the root
+    # (rather than every leaf) keeps the run set correct if the user edits the
+    # topology between approving and running.
+    ops.append({"type": "focus_nodes", "nodeIds": [sku_ref] + creates})
+    ops.append({"type": "run_nodes", "nodeIds": [sku_ref]})
+
     return {
-        "title": "创建完整上新工作流",
+        "title": "创建三平台完整上新工作流",
         "summary": (
             f"为 {('、'.join(platforms)) or '所选平台'} 准备上新：新建 {created_nodes} 个节点"
             f"，建立 {sum(1 for o in ops if o['type'] == 'connect_nodes')} 条连接。"
@@ -581,6 +593,8 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
             1 for o in ops if o["type"] == "create_node" and o["nodeType"] != "sku_listing"
         ),
         "warnings": warnings,
+        # validate_plan forces this to True anyway once run_nodes is present;
+        # stating it here keeps the template honest on its own.
         "requiresRunConfirmation": True,
         "operations": ops,
     }
@@ -745,8 +759,15 @@ def plan_reply(plan: dict[str, Any]) -> str:
 
 
 def extract_plan_json(raw: str) -> "dict[str, Any] | None":
-    """Pull a plan object out of a model reply. Returns None on anything odd."""
+    """Pull a plan object out of a model reply. Returns None on anything odd.
+
+    Understands the streamed ``<agent_plan>`` protocol as well as the older
+    fenced-block form, so both endpoints accept either shape of reply.
+    """
     text = (raw or "").strip()
+    tagged = re.search(r"<agent_plan>\s*([\s\S]*?)\s*</agent_plan>", text)
+    if tagged:
+        text = tagged.group(1).strip()
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if fence:
         text = fence.group(1).strip()
@@ -758,3 +779,123 @@ def extract_plan_json(raw: str) -> "dict[str, Any] | None":
     except (json.JSONDecodeError, ValueError):
         return None
     return data if isinstance(data, dict) else None
+
+
+# --------------------------------------------------------------------------- #
+# Structured planning rationale ("为什么这样规划")                              #
+#                                                                              #
+# Derived by THIS module from the validated plan and the detected intent. The  #
+# model never supplies it, and there is no field it could smuggle prose into,  #
+# so the section can never become a rendering of hidden reasoning.             #
+# --------------------------------------------------------------------------- #
+
+#: Human labels for the intent tags we are willing to show.
+_INTENT_LABELS = {
+    "full_workflow": "完整上新工作流",
+    "amazon": "Amazon 货架",
+    "tiktok": "TikTok Shop 货架",
+    "shopify": "Shopify 品牌站",
+    "video": "含短视频",
+    "white_bg": "白底主图",
+    "lifestyle": "场景 / 生活图",
+    "evidence": "证据相关",
+    "remove": "移除内容",
+    "repair": "修复失败节点",
+    "connect": "连接节点",
+    "bpa": "BPA-Free 宣称",
+    "policy": "平台政策",
+}
+
+#: What each template node is for. Keyed by tempId so the rationale explains
+#: purpose rather than repeating the prompt text back at the user.
+_NODE_PURPOSE = {
+    "img_amazon": "Amazon 货架主图：纯白底、无加字",
+    "img_tiktok": "TikTok Shop 场景图：竖版，供商品卡与视频首帧",
+    "img_shopify": "Shopify 品牌站生活图：不强制白底",
+    "vid_tiktok": "TikTok Shop 商品短视频：以场景图为首帧",
+    "sku1": "SKU 事实源：三台草稿都由它编译",
+}
+
+_PLATFORM_LABELS = (("amazon", "Amazon"), ("tiktok", "TikTok Shop"), ("shopify", "Shopify"))
+
+
+def build_rationale(
+    plan: dict[str, Any],
+    *,
+    text: str = "",
+    context: "dict[str, Any] | None" = None,
+    source: str = "template",
+) -> dict[str, Any]:
+    """Structured explanation of *plan*. Facts only, no narration.
+
+    ``source`` is ``"template"`` for the audited deterministic plan and
+    ``"model"`` for a validated model plan, so the card can say which produced
+    the proposal instead of implying both were reasoned the same way.
+    """
+    context = context or {}
+    tags = _intent(text)
+    operations = plan.get("operations") or []
+
+    nodes: list[dict[str, str]] = []
+    for op in operations:
+        if op["type"] != "create_node":
+            continue
+        ref = op.get("tempId", "")
+        fields = op.get("fields") or {}
+        entry = {
+            "ref": ref,
+            "nodeType": op["nodeType"],
+            "purpose": _NODE_PURPOSE.get(ref, "由计划新建的节点"),
+        }
+        if fields.get("aspectRatio"):
+            entry["aspectRatio"] = str(fields["aspectRatio"])
+        if fields.get("duration"):
+            entry["duration"] = str(fields["duration"])
+        nodes.append(entry)
+
+    # Platforms come from the SKU node's own toggles when the plan sets them,
+    # so the list reflects what will actually be compiled.
+    platforms: list[str] = []
+    for op in operations:
+        if op["type"] not in ("create_node", "update_node"):
+            continue
+        if op.get("nodeType") != "sku_listing":
+            continue
+        fields = op.get("fields") or {}
+        platforms = [label for key, label in _PLATFORM_LABELS if fields.get(key)]
+        break
+    if not platforms:
+        platforms = [label for key, label in _PLATFORM_LABELS if key in tags]
+
+    run_ids: list[str] = []
+    for op in operations:
+        if op["type"] == "run_nodes":
+            run_ids.extend(op["nodeIds"])
+
+    return {
+        "intent": [_INTENT_LABELS[t] for t in sorted(tags) if t in _INTENT_LABELS],
+        "platforms": platforms,
+        "source": "template" if source == "template" else "model",
+        "nodes": nodes,
+        "nodeCount": len(nodes),
+        "updatedNodeCount": sum(1 for o in operations if o["type"] == "update_node"),
+        "connectionCount": sum(1 for o in operations if o["type"] == "connect_nodes"),
+        "warnings": list(plan.get("warnings") or []),
+        "estimatedModelCalls": int(plan.get("estimatedModelCalls") or 0),
+        "requiresRunConfirmation": bool(plan.get("requiresRunConfirmation")),
+        "runTargets": run_ids,
+        # Stated as a field rather than prose so the UI cannot drop it.
+        "publishes": False,
+        "publishNote": "该工作流只写入本地画布，不会发布商品，也不会登录任何平台账户。",
+    }
+
+
+def with_rationale(
+    plan: dict[str, Any],
+    *,
+    text: str = "",
+    context: "dict[str, Any] | None" = None,
+    source: str = "template",
+) -> dict[str, Any]:
+    """*plan* plus its ``rationale`` key."""
+    return {**plan, "rationale": build_rationale(plan, text=text, context=context, source=source)}

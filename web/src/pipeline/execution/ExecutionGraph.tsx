@@ -183,4 +183,23 @@ export class ExecutionGraph {
 	getNodeStatus(nodeId: TLShapeId) {
 		return this.nodesById.get(nodeId)?.state
 	}
+
+	/**
+	 * Real progress over the nodes in this run that call a generation model.
+	 *
+	 * Counts executed media nodes, so a caller can report "3/5" from what has
+	 * actually finished rather than from a timer. Reactive: reading it inside a
+	 * signals context re-runs as nodes complete.
+	 */
+	getModelProgress(): { done: number; total: number } {
+		let done = 0
+		let total = 0
+		for (const node of this.nodesById.values()) {
+			const type = (node.shape.props.node as { type?: string }).type
+			if (type !== 'image_generation' && type !== 'video_generation') continue
+			total += 1
+			if (node.state === 'executed') done += 1
+		}
+		return { done, total }
+	}
 }

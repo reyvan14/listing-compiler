@@ -147,6 +147,54 @@ app.add_middleware(
 
 ---
 
+## 3b. 反向代理：Agent 流式响应（SSE）
+
+`POST /api/agent/chat/stream` 以 `text/event-stream` 逐块返回。默认配置下 Nginx 会
+**缓冲**上游响应，整段响应写完才发给浏览器 —— 功能不报错，但流式效果完全消失，
+用户看到的仍是「等很久，然后一次性出现」。后端已经在响应头里带了
+`X-Accel-Buffering: no`、`Cache-Control: no-cache, no-transform`，
+还需要在代理层配合：
+
+```nginx
+location /api/agent/chat/stream {
+    proxy_pass http://127.0.0.1:8788;
+
+    # 关掉缓冲，逐块转发
+    proxy_buffering off;
+    proxy_cache off;
+    chunked_transfer_encoding on;
+
+    # SSE 需要 HTTP/1.1 且不复用 keep-alive 的 Connection 头
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+
+    # 一次生成可能跑满一分钟以上，别让代理提前掐断
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+其余 `/api/` 路径保持原有 `location` 配置不变即可。
+
+**注意事项**
+
+- 若前面还有 CDN 或第二层代理（Cloudflare、SLB），同样要为这条路径关闭缓冲与压缩；
+  `gzip on` 对 SSE 是安全的，但**代理层的响应缓冲**不是。
+- `proxy_buffering off` 只对这条 location 生效，不影响其它接口的性能。
+- 客户端按 404 / 405 / 非 `text/event-stream` 三种情况**降级一次**到非流式的
+  `POST /api/agent/chat`，所以代理没配好时功能仍可用，只是不再逐字显示。
+  一旦已经收到任何 delta / status / plan 事件，就不会再自动重发（否则会重复计费），
+  界面改为提供「重试」。
+
+本轮不改动生产服务器：以上配置需要由部署方自行应用并 `nginx -t && systemctl reload nginx`。
+
+---
+
 ## 4. 构建前端
 
 ```bash
@@ -248,5 +296,8 @@ E2E 需要 Node ≥ 22.12 与 Playwright 的 Chromium（`npx playwright install 
 - tldraw 仍使用内嵌 eval 许可证 + `vite.config.ts` 的 `keepTldrawEditor` transform；
   升级 tldraw 补丁版本可能使该 transform 失效，应改为正式许可证 Key（走环境变量）。
 - 生产包体 `index.js` ≈ 2 MB（gzip ≈ 625 KB），未做代码分割。
-- 取消（Cancel）会中止在途 listing 请求并阻止结果落地；但 Agent / 媒体节点的在途请求
-  目前只受各自超时约束，没有单独的取消按钮。
+- 取消（Cancel）会中止在途 listing 请求并阻止结果落地。Agent 的流式回复现在有「停止」
+  按钮，会经 `AbortController` 传导到后端并关闭上游连接；媒体节点的在途请求仍只受
+  各自超时约束，没有单独的取消按钮。
+- SSE 流式依赖反向代理关闭缓冲（见 3b）。未按该配置部署时，前端会一次性收到全部内容，
+  或在端点不可达时降级到非流式接口。

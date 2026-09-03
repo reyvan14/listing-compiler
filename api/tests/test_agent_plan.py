@@ -420,9 +420,12 @@ def test_instructions_hidden_in_product_content_do_not_become_operations(monkeyp
     types = {o["type"] for o in plan["operations"]}
     # only the allow-listed operations exist at all; there is no delete/publish
     assert types <= set(ap.OPERATION_TYPES)
-    blob = json.dumps(plan, ensure_ascii=False)
+        # The rationale block legitimately contains "publishes": false, so check
+    # the operations themselves rather than the whole document.
+    blob = json.dumps(plan["operations"], ensure_ascii=False)
     assert "rm -rf" not in blob
     assert "publish" not in blob.lower()
+    assert "IGNORE ALL PREVIOUS" not in blob
 
 
 def test_a_model_plan_that_breaks_the_schema_is_dropped(monkeypatch):

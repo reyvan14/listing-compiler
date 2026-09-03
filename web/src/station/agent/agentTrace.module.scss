@@ -1,0 +1,149 @@
+/* 执行过程. Same palette and type scale as stationChrome.module.scss. */
+
+.trace {
+  margin: -4px 0 10px;
+  border: 1px solid #322f26;
+  border-radius: 8px;
+  background: #1b1915;
+  overflow: hidden;
+}
+
+.toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  background: none;
+  color: #b7b2a5;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.toggle:hover {
+  background: #221f1a;
+}
+
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #6f6855;
+}
+
+.dotActive {
+  background: #ffc249;
+  animation: tracePulse 1.4s ease-in-out infinite;
+}
+
+.dotFailed {
+  background: #ff764a;
+  animation: none;
+}
+
+@keyframes tracePulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+/* Respect a user who has asked the OS for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .dotActive {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+.currentLabel {
+  flex: 1;
+  min-width: 0;
+  color: #e1ded8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toggleHint {
+  flex: none;
+  color: #8f8a7d;
+  font-size: 11px;
+}
+
+.steps {
+  margin: 0;
+  padding: 2px 10px 8px;
+  list-style: none;
+  border-top: 1px solid #262319;
+}
+
+.step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.mark {
+  flex: none;
+  width: 12px;
+  color: #6f6855;
+  text-align: center;
+}
+
+.step[data-state='done'] .mark {
+  color: #7ac781;
+}
+
+.step[data-state='active'] .mark {
+  color: #ffc249;
+}
+
+.step[data-state='failed'] .mark {
+  color: #ff764a;
+}
+
+.step[data-state='failed'] .stepLabel {
+  color: #ff9c7a;
+}
+
+.stepBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.stepLabel {
+  color: #d5d1c8;
+}
+
+.stepDetail {
+  display: block;
+  color: #8f8a7d;
+  overflow-wrap: anywhere;
+}
+
+.stepTime {
+  flex: none;
+  color: #6f6855;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.total {
+  padding: 4px 0 0;
+  border-top: 1px solid #262319;
+  color: #8f8a7d;
+  font-size: 10.5px;
+}

@@ -131,6 +131,38 @@
 Agent 只在前端真正应用成功之后才会说「已应用」；生成结果以节点自身状态为准，
 Agent 不代替节点报成功，也永远不会写「已发布」。
 
+### 流式回复与执行过程
+
+| 接口 | 说明 |
+|---|---|
+| `POST /api/agent/chat` | 非流式，返回 `{reply, plan}`。保持向后兼容，未改动。 |
+| `POST /api/agent/chat/stream` | SSE（`text/event-stream`），事件：`meta` / `status` / `delta` / `warning` / `plan` / `heartbeat` / `error` / `done`。 |
+
+- **真流式**：`api/token_plan.py` 用 provider 的 `stream: true` 协议，逐块解析 SSE，
+  支持 `[DONE]`、容忍坏块、把前端的取消传导到 httpx 连接。日志只记录请求 id、
+  状态码与错误类别，不记录提示词、输出、Key 或 Authorization 头。
+- **回复与计划分流**：模型按
+  `<assistant_reply>…</assistant_reply><agent_plan>{…}</agent_plan>` 输出。
+  增量解析器会扣住任何可能是分隔符前缀的尾巴，因此**计划 JSON 永远不会以聊天文本出现**，
+  哪怕分隔符正好被网络切成两半。计划先缓冲、校验通过后才作为 `plan` 事件发出；
+  不完整或非法的计划只会被丢弃，不会变成可点击的卡片。
+- **执行过程（不是「思考过程」）**：`understanding` / `reading_canvas` /
+  `checking_evidence` / `planning` / `validating` / `ready` / `applying` /
+  `generating` / `completed` / `failed` / `cancelled`。每一条都是产品真实做过、
+  用户可核对的动作（读了几个节点、账本里各状态几条、按允许清单校验）。
+  **模型的隐藏推理不会被请求、存储或展示**：`reasoning_content` 在 provider 边界就被丢弃。
+  界面不显示编造的百分比。
+- **为什么这样规划**：计划卡片上的折叠区，全部由后端从**已校验的计划**推导出的结构化字段
+  组成（意图、平台、规划来源、节点用途、比例与时长、证据提示、预计调用次数、
+  是否需要二次确认、不发布声明）。没有任何自由文本字段，因此推理内容无处可藏。
+- **停止**：流式期间「发送」变为「停止」，走 `AbortController`，会真正断开上游请求。
+- **降级**：只有在流式端点返回 404 / 405 / 非 SSE **且尚未收到任何有意义事件**时，
+  才自动回落到非流式接口一次。已经出现过 delta / status / plan 之后不自动重发
+  （否则重复计费），改为提供「重试」。
+- **生成进度**：`正在生成 3/5` 来自 `ExecutionGraph` 中真实执行完成的媒体节点，不是计时器。
+
+反向代理必须为该路径关闭缓冲，否则流式退化为一次性返回；配置见 `docs/DEPLOY.md` 3b。
+
 ## 启动
 
 ```bash

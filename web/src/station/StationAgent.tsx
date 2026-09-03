@@ -1,24 +1,30 @@
-import { FormEvent, useCallback, useMemo, useRef, useState } from 'react'
-import type { Editor } from 'tldraw'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useValue, type Editor } from 'tldraw'
 import { toSafeMessage } from './apiClient'
 import styles from './stationChrome.module.scss'
+import { executionState } from '@/pipeline/execution/executionState'
 import { AgentPlanCard } from './agent/AgentPlanCard'
 import { AgentPreviewLayer } from './agent/AgentPreviewLayer'
-import { askAgent, type AgentTurn } from './agent/agentApi'
+import { AgentTrace } from './agent/AgentTrace'
+import { askAgent, streamAgent, type AgentTurn } from './agent/agentApi'
 import { applyPlan, focusAgentNodes, runAgentNodes, type ApplyResult } from './agent/apply'
 import { buildCanvasContext, nodeDisplayNames } from './agent/canvasContext'
 import { fetchFacts } from './evidenceApi'
+import { advanceTrace, type TraceEntry } from './agent/trace'
 import { validatePlan } from './agent/validate'
 import type { AgentPlan, PlanState } from './agent/types'
 
 // The Agent proposes; the canvas is changed only by an explicit click here.
 //
-// Every claim this panel makes is written AFTER the corresponding operation
-// actually succeeded — there is no code path that reports "已应用" before
-// applyPlan() has returned.
+// Responses stream, so text appears as it is produced and the 执行过程 trace
+// shows what the product is doing. Nothing about that changes the safety
+// envelope: a plan is still only actionable once the complete, validated
+// `plan` event has arrived, applying still needs a click, and generating still
+// needs a second confirmation.
 
 type ChatItem =
   | { kind: 'text'; role: 'user' | 'assistant'; text: string; error?: boolean }
+  | { kind: 'stream'; role: 'assistant'; turnId: number }
   | { kind: 'plan'; role: 'assistant'; planId: string }
   | {
       kind: 'activity'
@@ -35,6 +41,18 @@ type PlanRecord = {
   state: PlanState
   errors?: string[]
   applied?: ApplyResult
+}
+
+/** The response currently streaming, if any. */
+type LiveTurn = {
+  id: number
+  text: string
+  trace: TraceEntry[]
+  startedAt: number
+  elapsedMs: number
+  warnings: string[]
+  error?: string
+  retryable?: boolean
 }
 
 const GREETING: ChatItem = {
@@ -66,16 +84,25 @@ export function StationAgent({
   const [busy, setBusy] = useState(false)
   const [lastUserText, setLastUserText] = useState('')
   const [previewPlanId, setPreviewPlanId] = useState<string | null>(null)
-  // Index of the activity row whose "运行这些节点" is awaiting confirmation.
-  // Generation costs money, so it never happens on a single click.
+  const [live, setLive] = useState<LiveTurn | null>(null)
   const [confirmRunAt, setConfirmRunAt] = useState<number | null>(null)
+
   const planSeq = useRef(0)
-  const applyingPlans = useRef(new Set<string>())
-  const runningPlans = useRef(new Set<string>())
+  const turnSeq = useRef(0)
+  const abortRef = useRef<AbortController | null>(null)
+  //: Guards a double-click on 发送 / a quick action: React state updates are
+  //: async, so `busy` alone can let two sends through in the same tick.
+  const sendingRef = useRef(false)
+  //: Plans that have already been applied or run once. Re-entry here would
+  //: duplicate nodes or spend a second round of model calls.
+  const appliedRef = useRef(new Set<string>())
+  const runningRef = useRef(new Set<string>())
+
+  // Abort an in-flight stream if the panel unmounts.
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   const nodeNames = useMemo(
     () => (editor ? nodeDisplayNames(editor) : new Map<string, string>()),
-    // Recomputed per render of the panel; cheap, and names change as the user edits.
     [editor, items],
   )
 
@@ -103,52 +130,140 @@ export function StationAgent({
     }
   }, [])
 
+  /** Register a validated plan and return the id the card will use. */
+  const adoptPlan = useCallback(
+    (plan: AgentPlan): string => {
+      planSeq.current += 1
+      const planId = `plan-${planSeq.current}`
+      const withId = { ...plan, id: planId }
+      // Validate on arrival so the card can say up front that it cannot run,
+      // instead of failing after the user commits to it.
+      const check = editor ? validatePlan(editor, withId) : null
+      setPlans(prev => ({
+        ...prev,
+        [planId]: {
+          plan: withId,
+          state: check && !check.ok ? 'invalid' : 'proposed',
+          errors: check && !check.ok ? check.errors : undefined,
+        },
+      }))
+      return planId
+    },
+    [editor],
+  )
+
   const send = async (text: string) => {
+    if (sendingRef.current) return
+    sendingRef.current = true
+
+    turnSeq.current += 1
+    const turnId = turnSeq.current
+    const startedAt = Date.now()
+
     const history: ChatItem[] = [...items, { kind: 'text', role: 'user', text }]
-    setItems(history)
+    setItems([...history, { kind: 'stream', role: 'assistant', turnId }])
     setLastUserText(text)
     setBusy(true)
-    try {
-      const turns: AgentTurn[] = history
-        .filter((item): item is Extract<ChatItem, { kind: 'text' }> => item.kind === 'text')
-        .map(item => ({ role: item.role, content: item.text }))
-      const context = buildCanvasContext(editor, await evidenceSummary())
-      const { reply, plan } = await askAgent(turns, context)
+    setLive({ id: turnId, text: '', trace: [], startedAt, elapsedMs: 0, warnings: [] })
 
-      const next: ChatItem[] = [...history, { kind: 'text', role: 'assistant', text: reply }]
-      if (plan) {
-        planSeq.current += 1
-        const planId = `plan-${planSeq.current}`
-        const withId = { ...plan, id: planId }
-        // Validate on arrival so the card can say up front that it cannot run,
-        // instead of failing after the user commits to it.
-        const check = editor ? validatePlan(editor, withId) : null
-        setPlans(prev => ({
-          ...prev,
-          [planId]: {
-            plan: withId,
-            state: check && !check.ok ? 'invalid' : 'proposed',
-            errors: check && !check.ok ? check.errors : undefined,
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    const turns: AgentTurn[] = history
+      .filter((item): item is Extract<ChatItem, { kind: 'text' }> => item.kind === 'text')
+      .map(item => ({ role: item.role, content: item.text }))
+
+    let planId: string | null = null
+    let replyText = ''
+
+    try {
+      const context = buildCanvasContext(editor, await evidenceSummary())
+      const result = await streamAgent(
+        turns,
+        context,
+        {
+          onStatus: status =>
+            setLive(prev =>
+              prev && prev.id === turnId
+                ? {
+                    ...prev,
+                    trace: advanceTrace(prev.trace, {
+                      ...status,
+                      at: Date.now() - startedAt,
+                    }),
+                  }
+                : prev,
+            ),
+          onDelta: piece => {
+            replyText += piece
+            setLive(prev =>
+              prev && prev.id === turnId ? { ...prev, text: prev.text + piece } : prev,
+            )
           },
-        }))
-        next.push({ kind: 'plan', role: 'assistant', planId })
+          onWarning: message =>
+            setLive(prev =>
+              prev && prev.id === turnId
+                ? { ...prev, warnings: [...prev.warnings, message] }
+                : prev,
+            ),
+          onPlan: plan => {
+            planId = adoptPlan(plan)
+          },
+          onError: error =>
+            setLive(prev =>
+              prev && prev.id === turnId
+                ? { ...prev, error: error.message, retryable: error.retryable }
+                : prev,
+            ),
+        },
+        controller.signal,
+      )
+
+      if (result.unsupported && !result.meaningful) {
+        // Only reachable before anything was shown: the older endpoint answers
+        // once, and the turn continues as if it had streamed.
+        const fallback = await askAgent(turns, context)
+        replyText = fallback.reply
+        if (fallback.plan) planId = adoptPlan(fallback.plan)
       }
-      setItems(next)
+
+      setItems(prev => [
+        ...prev.filter(item => !(item.kind === 'stream' && item.turnId === turnId)),
+        { kind: 'text', role: 'assistant', text: replyText || '（无回复）' },
+        ...(planId ? [{ kind: 'plan' as const, role: 'assistant' as const, planId }] : []),
+      ])
     } catch (err) {
-      setItems([
-        ...history,
-        { kind: 'text', role: 'assistant', text: toSafeMessage(err), error: true },
+      const aborted = controller.signal.aborted
+      setItems(prev => [
+        ...prev.filter(item => !(item.kind === 'stream' && item.turnId === turnId)),
+        ...(replyText ? [{ kind: 'text' as const, role: 'assistant' as const, text: replyText }] : []),
+        {
+          kind: 'text' as const,
+          role: 'assistant' as const,
+          text: aborted ? '已停止。收到的内容保留在上面。' : toSafeMessage(err),
+          error: !aborted,
+        },
+        ...(planId ? [{ kind: 'plan' as const, role: 'assistant' as const, planId }] : []),
       ])
     } finally {
+      setLive(null)
       setBusy(false)
+      sendingRef.current = false
+      if (abortRef.current === controller) abortRef.current = null
     }
+  }
+
+  const stop = () => {
+    abortRef.current?.abort()
   }
 
   /** Apply, then (optionally) run. Only reports what actually happened. */
   const apply = async (planId: string, thenRun: boolean) => {
     const record = plans[planId]
-    if (!record || !editor || applyingPlans.current.has(planId)) return
-    applyingPlans.current.add(planId)
+    if (!record || !editor) return
+    // A second click while the first apply is in flight would duplicate nodes.
+    if (appliedRef.current.has(planId)) return
+    appliedRef.current.add(planId)
     setPreviewPlanId(current => (current === planId ? null : current))
     setPlanState(planId, { state: 'applying', errors: undefined })
 
@@ -156,6 +271,7 @@ export function StationAgent({
     try {
       result = applyPlan(editor, record.plan)
     } catch (err) {
+      appliedRef.current.delete(planId)
       setPlanState(planId, { state: 'failed', errors: [toSafeMessage(err)] })
       push({
         kind: 'text',
@@ -163,7 +279,6 @@ export function StationAgent({
         text: '这次改动没有应用，画布保持原样。',
         error: true,
       })
-      applyingPlans.current.delete(planId)
       return
     }
 
@@ -184,19 +299,17 @@ export function StationAgent({
     focusAgentNodes(editor, touched)
 
     if (!thenRun) {
-      applyingPlans.current.delete(planId)
       return
     }
-    try {
-      await run(planId, nodesToRun)
-    } finally {
-      applyingPlans.current.delete(planId)
-    }
+    await run(planId, nodesToRun)
   }
 
   const run = async (planId: string, nodeIds: string[]) => {
-    if (!editor || nodeIds.length === 0 || runningPlans.current.has(planId)) return
-    runningPlans.current.add(planId)
+    if (!editor || nodeIds.length === 0) return
+    // Never start a second run for the same plan: it would spend the model
+    // budget twice and race the first run's writes.
+    if (runningRef.current.has(planId)) return
+    runningRef.current.add(planId)
     setPlanState(planId, { state: 'running' })
     try {
       await runAgentNodes(editor, nodeIds)
@@ -210,14 +323,15 @@ export function StationAgent({
       setPlanState(planId, { state: 'failed', errors: [toSafeMessage(err)] })
       push({ kind: 'text', role: 'assistant', text: toSafeMessage(err), error: true })
     } finally {
-      runningPlans.current.delete(planId)
+      runningRef.current.delete(planId)
     }
   }
 
   const undo = (planId: string, itemIndex: number) => {
     const record = plans[planId]
-    if (!record?.applied || runningPlans.current.has(planId)) return
+    if (!record?.applied || runningRef.current.has(planId)) return
     record.applied.undo()
+    appliedRef.current.delete(planId)
     setPlanState(planId, { state: 'cancelled', applied: undefined })
     setItems(prev =>
       prev.map((item, i) =>
@@ -230,7 +344,7 @@ export function StationAgent({
   const onSubmit = (event: FormEvent) => {
     event.preventDefault()
     const text = draft.trim()
-    if (!text || busy) return
+    if (!text || busy || sendingRef.current) return
     setDraft('')
     void send(text)
   }
@@ -271,11 +385,14 @@ export function StationAgent({
               type="button"
               title="新对话"
               aria-label="新对话"
+              disabled={busy}
               onClick={() => {
                 setItems([GREETING])
                 setPlans({})
                 setPreviewPlanId(null)
                 setLastUserText('')
+                appliedRef.current.clear()
+                runningRef.current.clear()
               }}
             >
               +
@@ -288,6 +405,23 @@ export function StationAgent({
 
         <div className={styles.agentLog}>
           {items.map((item, i) => {
+            if (item.kind === 'stream') {
+              if (!live || live.id !== item.turnId) return null
+              return (
+                <div key={`stream-${item.turnId}`}>
+                  <AgentTrace entries={live.trace} elapsedMs={live.elapsedMs} />
+                  {live.text && <div className={styles.bot}>{live.text}</div>}
+                  {live.warnings.map((warning, w) => (
+                    <div key={w} className={styles.agentWarning}>
+                      {warning}
+                    </div>
+                  ))}
+                  {live.error && <div className={styles.botError}>{live.error}</div>}
+                  {!live.text && !live.error && <div className={styles.bot}>正在回复…</div>}
+                </div>
+              )
+            }
+
             if (item.kind === 'plan') {
               const record = plans[item.planId]
               if (!record) return null
@@ -317,6 +451,9 @@ export function StationAgent({
               return (
                 <div key={`activity-${i}`} className={styles.bot}>
                   {item.undone ? '这次改动已被撤销。' : item.text}
+                  {record?.state === 'running' && editor && (
+                    <GenerationProgress editor={editor} />
+                  )}
                   {!item.undone && (
                     <div className={styles.activityBtns}>
                       <button type="button" onClick={() => focusAgentNodes(editor!, item.nodeIds)}>
@@ -366,13 +503,12 @@ export function StationAgent({
               </div>
             )
           })}
-          {busy && <div className={styles.bot}>在想…</div>}
           {lastIsError && !busy && (
             <button
               type="button"
               className={styles.agentRetry}
               onClick={() => {
-                if (!busy && lastUserText) void send(lastUserText)
+                if (!busy && !sendingRef.current && lastUserText) void send(lastUserText)
               }}
             >
               重试
@@ -380,15 +516,10 @@ export function StationAgent({
           )}
         </div>
 
-        {items.length <= 1 && (
+        {items.length <= 1 && !busy && (
           <div className={styles.quickActions} aria-label="快捷指令">
             {QUICK_ACTIONS.map(action => (
-              <button
-                key={action}
-                type="button"
-                disabled={busy}
-                onClick={() => void send(action)}
-              >
+              <button key={action} type="button" onClick={() => void send(action)}>
                 {action}
               </button>
             ))}
@@ -408,11 +539,37 @@ export function StationAgent({
               }
             }}
           />
-          <button type="submit" disabled={busy || !draft.trim()}>
-            发送
-          </button>
+          {busy ? (
+            <button type="button" className={styles.agentStop} onClick={stop}>
+              停止
+            </button>
+          ) : (
+            <button type="submit" disabled={!draft.trim()}>
+              发送
+            </button>
+          )}
         </form>
       </aside>
     </>
+  )
+}
+
+/**
+ * Real generation progress, read from the running ExecutionGraph.
+ *
+ * Counts nodes that have actually finished. There is no timer and no
+ * fabricated percentage — if nothing has completed yet, it says 0.
+ */
+function GenerationProgress({ editor }: { editor: Editor }) {
+  const progress = useValue(
+    'agent generation progress',
+    () => executionState.get(editor)?.runningGraph?.getModelProgress() ?? null,
+    [editor],
+  )
+  if (!progress || progress.total === 0) return null
+  return (
+    <div className={styles.agentProgress} data-testid="agent-generation-progress">
+      正在生成 {progress.done}/{progress.total}
+    </div>
   )
 }

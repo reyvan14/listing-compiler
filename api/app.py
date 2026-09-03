@@ -1,18 +1,29 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import agent_plan
 import evidence
 import migration
 import policy
 import portfolio
+import agent_stream
 from agent import agent_reply
 from checker import apply_checks
 from generate import generate_drafts
@@ -482,7 +493,67 @@ async def agent_chat(body: AgentChatBody):
     one transaction after the user approves. Nothing here mutates a canvas.
     """
     result = await agent_reply(body.messages, body.context)
-    return {"code": 0, "data": {"reply": result["reply"], "plan": result.get("plan")}}
+    plan = result.get("plan")
+    if plan is not None:
+        last_user = next(
+            (
+                str(m.get("content") or "")
+                for m in reversed(body.messages)
+                if m.get("role") == "user"
+            ),
+            "",
+        )
+        plan = agent_plan.with_rationale(plan, text=last_user, context=body.context)
+    return {"code": 0, "data": {"reply": result["reply"], "plan": plan}}
+
+
+#: Headers that keep an SSE body flowing instead of being buffered. The
+#: X-Accel-Buffering hint is what stops Nginx from holding the whole response
+#: until the generator finishes; the matching server config is in docs/DEPLOY.md.
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
+@app.post("/api/agent/chat/stream")
+async def agent_chat_stream(body: AgentChatBody):
+    """The same turn as ``/api/agent/chat``, delivered as it is produced.
+
+    SSE over POST, because the request carries the conversation and the canvas
+    snapshot. The non-streaming endpoint above stays available unchanged, and
+    the client falls back to it when this route is unreachable.
+    """
+
+    async def events():
+        try:
+            async for event in agent_stream.stream_agent_events(
+                body.messages, body.context
+            ):
+                yield agent_stream.sse_frame(event)
+        except asyncio.CancelledError:
+            # The client went away (Stop, navigation, closed tab). Unwinding
+            # here is what propagates cancellation into the upstream request.
+            raise
+        except Exception:  # noqa: BLE001 - never leak provider detail to a client
+            logging.getLogger("listing.agent").exception("agent stream failed")
+            yield agent_stream.sse_frame(
+                {
+                    "event": "error",
+                    "data": {
+                        "category": "internal",
+                        "message": "Agent 服务出错，请重试。",
+                        "retryable": True,
+                    },
+                }
+            )
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream; charset=utf-8",
+        headers=_SSE_HEADERS,
+    )
 
 
 # --------------------------------------------------------------------------- #

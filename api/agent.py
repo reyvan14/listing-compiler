@@ -16,7 +16,12 @@ Amazon / TikTok Shop 商品主图偏白底无加字；Shopify 不强制白底。
 你可以提出「画布操作计划」，但你自己永远不会执行它：计划要由用户在界面上批准，
 再由前端校验后应用。因此不要说「我已经创建了」「已经运行了」这类完成时的话。
 
-当用户要求搭建 / 修改画布时，在回复末尾追加一个 JSON 代码块，形如：
+输出格式（重要，用于流式渲染）：先输出给用户看的自然语言回复，包在
+<assistant_reply> 与 </assistant_reply> 之间；如果需要提出画布操作计划，
+再输出 <agent_plan> 与 </agent_plan>，中间只放一个 JSON 对象，不要有别的文字。
+不要在 <assistant_reply> 里出现任何 JSON。
+
+当用户要求搭建 / 修改画布时，<agent_plan> 里的 JSON 形如：
 {"title":"...","summary":"...","estimatedModelCalls":0,"warnings":[],
  "operations":[{"type":"create_node","tempId":"img1","nodeType":"image_generation",
                 "fields":{"prompt":"...","aspectRatio":"1:1"}}]}
@@ -77,6 +82,34 @@ def _context_message(context: dict[str, Any]) -> "dict[str, str] | None":
     return {"role": "user", "content": f"{UNTRUSTED_HEADER}\n\n```json\n{payload}\n```"}
 
 
+def clean_messages(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """The last few well-formed turns. Shared by the streaming path."""
+    cleaned: list[dict[str, str]] = []
+    for item in messages[-12:]:
+        role = item.get("role")
+        content = str(item.get("content") or "").strip()[:MAX_MESSAGE_CHARS]
+        if role in ("user", "assistant") and content:
+            cleaned.append({"role": role, "content": content})
+    return cleaned
+
+
+def build_prompt(
+    cleaned: list[dict[str, str]], context: "dict[str, Any] | None"
+) -> list[dict[str, str]]:
+    """System prompt + untrusted canvas block + conversation."""
+    prompt: list[dict[str, str]] = [{"role": "system", "content": SYSTEM}]
+    ctx_message = _context_message(context or {})
+    if ctx_message:
+        prompt.append(ctx_message)
+    prompt.extend(cleaned)
+    return prompt
+
+
+def looks_like_canvas_request(text: str) -> bool:
+    """True when the deterministic planner recognises *text* as a build request."""
+    return bool(agent_plan.deterministic_plan(text, {}))
+
+
 async def agent_reply(
     messages: list[dict[str, Any]],
     context: "dict[str, Any] | None" = None,
@@ -88,12 +121,7 @@ async def agent_reply(
     answers instead, so an unavailable or misbehaving model degrades the wording
     rather than the safety envelope.
     """
-    cleaned: list[dict[str, str]] = []
-    for item in messages[-12:]:
-        role = item.get("role")
-        content = str(item.get("content") or "").strip()[:MAX_MESSAGE_CHARS]
-        if role in ("user", "assistant") and content:
-            cleaned.append({"role": role, "content": content})
+    cleaned = clean_messages(messages)
     if not cleaned:
         return {"reply": "直接说你想搭的流程，或问三台规则。", "plan": None}
 
@@ -112,11 +140,7 @@ async def agent_reply(
             "已使用经过验证的三平台工作流模板；运行前仍可逐项检查。",
         )
 
-    prompt: list[dict[str, str]] = [{"role": "system", "content": SYSTEM}]
-    ctx_message = _context_message(context)
-    if ctx_message:
-        prompt.append(ctx_message)
-    prompt.extend(cleaned)
+    prompt = build_prompt(cleaned, context)
 
     try:
         raw = await token_plan.chat_completion(prompt, model=token_plan.agent_model())
@@ -140,11 +164,11 @@ async def agent_reply(
             print(f"[agent] plan rejected: {exc}", flush=True)
             plan = None
             fallback_warning = "模型计划未通过画布协议校验，已切换为安全工作流模板。"
-    elif _looks_like_canvas_request(last_user):
+    elif looks_like_canvas_request(last_user):
         fallback_warning = "模型本次只返回了说明文字，已切换为安全工作流模板。"
 
     reply = _strip_json_block(raw)
-    if plan is None and _looks_like_canvas_request(last_user):
+    if plan is None and looks_like_canvas_request(last_user):
         # The model answered in prose but the user asked for canvas work: fall
         # back to the deterministic planner rather than leaving them with text.
         fallback = agent_plan.deterministic_plan(last_user, context)
@@ -168,10 +192,6 @@ def _deterministic_response(
         raw_plan["warnings"] = [warning, *(raw_plan.get("warnings") or [])]
     plan = agent_plan.validate_plan(raw_plan)
     return {"reply": agent_plan.plan_reply(plan), "plan": plan}
-
-
-def _looks_like_canvas_request(text: str) -> bool:
-    return bool(agent_plan.deterministic_plan(text, {}))
 
 
 def _complete_update_node_types(candidate: Any, context: dict[str, Any]) -> Any:
@@ -208,7 +228,15 @@ def _strip_json_block(raw: str) -> str:
     """The prose half of a model reply, with the plan JSON removed."""
     import re
 
-    text = re.sub(r"```(?:json)?\s*[\s\S]*?```", "", raw or "").strip()
+    text = raw or ""
+    # The streamed protocol's tags, when a non-streaming client gets a reply
+    # that used them.
+    inner = re.search(r"<assistant_reply>([\s\S]*?)</assistant_reply>", text)
+    if inner:
+        text = inner.group(1)
+    text = re.sub(r"<agent_plan>[\s\S]*?(?:</agent_plan>|$)", "", text)
+    text = text.replace("<assistant_reply>", "").replace("</assistant_reply>", "")
+    text = re.sub(r"```(?:json)?\s*[\s\S]*?```", "", text).strip()
     brace = text.find("{")
     if brace != -1 and text[brace:].lstrip().startswith("{"):
         text = text[:brace].strip()
