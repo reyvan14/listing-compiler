@@ -25,6 +25,14 @@ import type { AgentPlan, PlanState } from './agent/types'
 type ChatItem =
   | { kind: 'text'; role: 'user' | 'assistant'; text: string; error?: boolean }
   | { kind: 'stream'; role: 'assistant'; turnId: number }
+  | {
+      kind: 'trace'
+      role: 'assistant'
+      turnId: number
+      entries: TraceEntry[]
+      elapsedMs: number
+      warnings: string[]
+    }
   | { kind: 'plan'; role: 'assistant'; planId: string }
   | {
       kind: 'activity'
@@ -175,6 +183,21 @@ export function StationAgent({
 
     let planId: string | null = null
     let replyText = ''
+    let traceEntries: TraceEntry[] = []
+    let streamWarnings: string[] = []
+    let streamError: { message: string; retryable: boolean } | null = null
+
+    const settledTraceItem = (): ChatItem[] =>
+      traceEntries.length > 0 || streamWarnings.length > 0
+        ? [{
+            kind: 'trace',
+            role: 'assistant',
+            turnId,
+            entries: traceEntries,
+            elapsedMs: Date.now() - startedAt,
+            warnings: streamWarnings,
+          }]
+        : []
 
     try {
       const context = buildCanvasContext(editor, await evidenceSummary())
@@ -182,39 +205,55 @@ export function StationAgent({
         turns,
         context,
         {
-          onStatus: status =>
+          onStatus: status => {
+            traceEntries = advanceTrace(traceEntries, {
+              ...status,
+              at: Date.now() - startedAt,
+            })
             setLive(prev =>
               prev && prev.id === turnId
                 ? {
                     ...prev,
-                    trace: advanceTrace(prev.trace, {
-                      ...status,
-                      at: Date.now() - startedAt,
-                    }),
+                    trace: traceEntries,
                   }
                 : prev,
-            ),
+            )
+          },
           onDelta: piece => {
             replyText += piece
             setLive(prev =>
               prev && prev.id === turnId ? { ...prev, text: prev.text + piece } : prev,
             )
           },
-          onWarning: message =>
+          onWarning: message => {
+            streamWarnings = [...streamWarnings, message]
             setLive(prev =>
               prev && prev.id === turnId
-                ? { ...prev, warnings: [...prev.warnings, message] }
+                ? { ...prev, warnings: streamWarnings }
                 : prev,
-            ),
+            )
+          },
           onPlan: plan => {
             planId = adoptPlan(plan)
           },
-          onError: error =>
+          onError: error => {
+            streamError = { message: error.message, retryable: error.retryable }
+            traceEntries = advanceTrace(traceEntries, {
+              stage: 'failed',
+              detail: error.message,
+              at: Date.now() - startedAt,
+            })
             setLive(prev =>
               prev && prev.id === turnId
-                ? { ...prev, error: error.message, retryable: error.retryable }
+                ? {
+                    ...prev,
+                    trace: traceEntries,
+                    error: error.message,
+                    retryable: error.retryable,
+                  }
                 : prev,
-            ),
+            )
+          },
         },
         controller.signal,
       )
@@ -229,13 +268,30 @@ export function StationAgent({
 
       setItems(prev => [
         ...prev.filter(item => !(item.kind === 'stream' && item.turnId === turnId)),
-        { kind: 'text', role: 'assistant', text: replyText || '（无回复）' },
+        ...settledTraceItem(),
+        ...(replyText || !streamError
+          ? [{ kind: 'text' as const, role: 'assistant' as const, text: replyText || '（无回复）' }]
+          : []),
+        ...(streamError
+          ? [{
+              kind: 'text' as const,
+              role: 'assistant' as const,
+              text: streamError.message,
+              error: true,
+            }]
+          : []),
         ...(planId ? [{ kind: 'plan' as const, role: 'assistant' as const, planId }] : []),
       ])
     } catch (err) {
       const aborted = controller.signal.aborted
+      traceEntries = advanceTrace(traceEntries, {
+        stage: aborted ? 'cancelled' : 'failed',
+        detail: aborted ? '用户停止了本次回复' : '流式连接未完成',
+        at: Date.now() - startedAt,
+      })
       setItems(prev => [
         ...prev.filter(item => !(item.kind === 'stream' && item.turnId === turnId)),
+        ...settledTraceItem(),
         ...(replyText ? [{ kind: 'text' as const, role: 'assistant' as const, text: replyText }] : []),
         {
           kind: 'text' as const,
@@ -418,6 +474,19 @@ export function StationAgent({
                   ))}
                   {live.error && <div className={styles.botError}>{live.error}</div>}
                   {!live.text && !live.error && <div className={styles.bot}>正在回复…</div>}
+                </div>
+              )
+            }
+
+            if (item.kind === 'trace') {
+              return (
+                <div key={`trace-${item.turnId}`}>
+                  <AgentTrace entries={item.entries} elapsedMs={item.elapsedMs} />
+                  {item.warnings.map((warning, w) => (
+                    <div key={w} className={styles.agentWarning}>
+                      {warning}
+                    </div>
+                  ))}
                 </div>
               )
             }

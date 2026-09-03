@@ -358,7 +358,11 @@ def is_canonical_full_workflow_request(text: str) -> bool:
     normalized = re.sub(r"\s+", "", (text or "").lower())
     named_template = any(
         phrase in normalized
-        for phrase in ("三平台完整工作流", "三台完整上新工作流")
+        for phrase in (
+            "三平台完整工作流",
+            "三平台完整上新工作流",
+            "三台完整上新工作流",
+        )
     )
     return named_template and _has_action(text)
 
@@ -452,6 +456,7 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
         )
         creates.append(sku_ref)
 
+    row = 0
     if want_amazon:
         ops.append(
             {
@@ -477,6 +482,7 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
             }
         )
         creates.append("img_amazon")
+        row += 1
 
     if want_tiktok:
         ops.append(
@@ -532,6 +538,7 @@ def _full_workflow_plan(text: str, context: dict[str, Any], tags: set[str]) -> d
                 }
             )
             creates.append("vid_tiktok")
+        row += 1
 
     if want_shopify:
         ops.append(

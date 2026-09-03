@@ -158,7 +158,7 @@ async def agent_reply(
     candidate = agent_plan.extract_plan_json(raw)
     if candidate is not None:
         try:
-            plan = agent_plan.validate_plan(_complete_update_node_types(candidate, context))
+            plan = agent_plan.validate_plan(complete_update_node_types(candidate, context))
         except agent_plan.PlanError as exc:
             # A model plan we cannot trust is dropped, not repaired.
             print(f"[agent] plan rejected: {exc}", flush=True)
@@ -194,7 +194,7 @@ def _deterministic_response(
     return {"reply": agent_plan.plan_reply(plan), "plan": plan}
 
 
-def _complete_update_node_types(candidate: Any, context: dict[str, Any]) -> Any:
+def complete_update_node_types(candidate: Any, context: dict[str, Any]) -> Any:
     """Fill one redundant model field from the live canvas safely.
 
     ``update_node.nodeType`` is required so writable fields can be validated.

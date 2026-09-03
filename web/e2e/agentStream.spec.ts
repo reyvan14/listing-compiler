@@ -189,6 +189,11 @@ test.describe('streaming', () => {
 
     await expect(page.locator(AGENT)).not.toContainText('思考过程');
     await page.screenshot({ path: `${SHOTS}/agent-trace-expanded.png` });
+
+    await emit(page, 'done', { requestId: 'r-trace' });
+    await page.evaluate(() => (window as never as { __sse: { close(): void } }).__sse.close());
+    await expect(page.locator(TRACE)).toBeVisible();
+    await expect(page.locator(TRACE)).toContainText('正在校验计划');
   });
 
   test('a partial plan frame never becomes an applicable card', async ({ page }) => {
@@ -276,7 +281,7 @@ test.describe('canonical workflow', () => {
 
     await page.screenshot({ path: `${SHOTS}/agent-plan-rationale.png` });
 
-    await card.getByRole('button', { name: '应用到画布' }).click();
+    await card.getByRole('button', { name: '仅创建节点' }).click();
     await expect(card.locator('[data-testid="plan-state"]')).toHaveText('已应用到画布');
 
     // SKU root + four media nodes.
@@ -297,7 +302,7 @@ test.describe('canonical workflow', () => {
     const card = page.locator(PLAN_CARD);
     await expect(card).toBeVisible({ timeout: 20_000 });
 
-    await card.getByRole('button', { name: '应用并运行' }).click();
+    await card.getByRole('button', { name: '创建并生成' }).click();
     const confirm = card.locator('[role="alertdialog"]');
     await expect(confirm).toBeVisible();
     await expect(confirm).toContainText('产生费用');
@@ -317,7 +322,7 @@ test.describe('canonical workflow', () => {
     const card = page.locator(PLAN_CARD);
     await expect(card).toBeVisible({ timeout: 20_000 });
 
-    const applyButton = card.getByRole('button', { name: '应用到画布' });
+    const applyButton = card.getByRole('button', { name: '仅创建节点' });
     await applyButton.click();
     await expect(card.locator('[data-testid="plan-state"]')).toHaveText('已应用到画布');
     await expect(page.locator(NODES)).toHaveCount(before + 4);
@@ -332,8 +337,9 @@ test.describe('canonical workflow', () => {
     await ask(page, '三平台完整工作流（含短视频）');
     await expect(page.locator(PLAN_CARD)).toBeVisible({ timeout: 20_000 });
 
-    // The trace persists on the settled turn only while streaming; the plan
-    // card is the durable artefact. What must never appear is 思考过程.
+    // The completed trace remains inspectable alongside the durable plan card.
+    await expect(page.locator(TRACE)).toBeVisible();
+    await expect(page.locator(TRACE)).toContainText('计划已就绪');
     await expect(page.locator(AGENT)).not.toContainText('思考过程');
   });
 });

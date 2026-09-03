@@ -8,7 +8,7 @@ dependent claims, and expired certification evidence is rejected.
 from __future__ import annotations
 
 import io
-from datetime import date, timedelta
+from datetime import timedelta
 
 from fastapi.testclient import TestClient
 
@@ -305,7 +305,7 @@ def test_a_conflict_does_not_contaminate_unrelated_facts():
 
 
 def test_expired_evidence_demotes_the_fact_and_blocks_the_claim():
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = (facts._today() - timedelta(days=1)).isoformat()
     upload(MANUAL_TXT, "cert.txt", expires_on=yesterday)
 
     material = {f["fact_id"]: f for f in facts.list_facts()}[
@@ -324,7 +324,7 @@ def test_expired_evidence_demotes_the_fact_and_blocks_the_claim():
 
 
 def test_evidence_valid_in_the_future_is_not_treated_as_expired():
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    tomorrow = (facts._today() + timedelta(days=1)).isoformat()
     upload(MANUAL_TXT, "cert.txt", expires_on=tomorrow)
     material = {f["fact_id"]: f for f in facts.list_facts()}[
         facts.fact_id_for("food_grade_silicone")
@@ -333,8 +333,8 @@ def test_evidence_valid_in_the_future_is_not_treated_as_expired():
 
 
 def test_correcting_a_source_expiry_updates_existing_fact_links():
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    yesterday = (facts._today() - timedelta(days=1)).isoformat()
+    tomorrow = (facts._today() + timedelta(days=1)).isoformat()
     src = upload(MANUAL_TXT, "cert.txt", expires_on=yesterday).json()["data"]["source"]
     assert {f["fact_id"]: f for f in facts.list_facts()}[
         facts.fact_id_for("food_grade_silicone")

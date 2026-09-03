@@ -397,7 +397,12 @@ async def stream_agent_events(
     reply_text = ""
     produced_delta = False
 
-    if not token_plan.is_configured():
+    if agent_plan.is_canonical_full_workflow_request(last_user):
+        # The named quick action is an audited UI contract. It must not drift
+        # with model output or spend a planner call before generation begins.
+        yield trace.status("planning", "使用经过验证的三平台工作流模板")
+        raw_plan = agent_plan.deterministic_plan(last_user, context)
+    elif not token_plan.is_configured():
         # No provider: the audited template answers, and the trace says so
         # rather than implying a model was consulted.
         yield trace.status("planning", "未配置模型，使用确定性模板")
@@ -460,7 +465,9 @@ async def stream_agent_events(
     plan = None
     if raw_plan is not None:
         try:
-            plan = agent_plan.validate_plan(raw_plan)
+            plan = agent_plan.validate_plan(
+                agent.complete_update_node_types(raw_plan, context)
+            )
         except agent_plan.PlanError as exc:
             # A plan we cannot trust is dropped, never repaired.
             yield _event("warning", {"message": f"模型给出的计划未通过校验，已丢弃（{exc}）。"})

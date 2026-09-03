@@ -187,21 +187,20 @@ export async function streamAgent(
     });
   } catch (err) {
     if (signal.aborted) throw err;
-    // The request never landed, so nothing has been shown: a fallback is safe.
-    result.unsupported = true;
-    return result;
+    // A transport failure does not prove the server never started the model.
+    // Retrying automatically could duplicate a charged request.
+    throw new Error('无法连接 Agent 流式服务，请手动重试。');
   }
 
   const contentType = response.headers.get('content-type') ?? '';
-  if (response.status === 404 || response.status === 405 || !response.body) {
-    result.unsupported = true;
-    return result;
-  }
-  if (!contentType.includes('text/event-stream')) {
+  if (response.status === 404 || response.status === 405) {
     result.unsupported = true;
     return result;
   }
   if (!response.ok) {
+    throw new Error(`Agent 流式服务返回错误（${response.status}），请手动重试。`);
+  }
+  if (!response.body || !contentType.includes('text/event-stream')) {
     result.unsupported = true;
     return result;
   }

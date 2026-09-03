@@ -23,6 +23,7 @@ import token_plan
 client = TestClient(app_module.app)
 
 CANONICAL = "创建三平台完整上新工作流，Amazon 1:1 白底，TikTok 9:16 场景图并生成 15 秒视频，Shopify 4:3"
+MODEL_REQUEST = "帮我加一个 1:1 白底主图节点"
 
 SECRET = "sk-test-do-not-log-2f9c1"
 
@@ -335,7 +336,7 @@ def test_deterministic_workflow_streams_status_then_plan_then_done(monkeypatch):
     detail = {d["stage"]: d["detail"] for n, d in events if n == "status"}
     assert "1 个节点" in detail["reading_canvas"]
     assert "待确认 2" in detail["checking_evidence"]
-    assert "确定性模板" in detail["planning"]
+    assert "模板" in detail["planning"]
 
 
 def test_the_streamed_canonical_plan_matches_the_audited_template(monkeypatch):
@@ -364,6 +365,25 @@ def test_the_streamed_canonical_plan_matches_the_audited_template(monkeypatch):
     assert len({y for _, y in slots}) == 2
 
 
+def test_canonical_stream_never_calls_the_planner_model(monkeypatch):
+    monkeypatch.setenv("TOKEN_PLAN_API_KEY", SECRET)
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("the audited quick action must not call the planner model")
+
+    monkeypatch.setattr(token_plan, "chat_completion_stream", must_not_run)
+    events = read_events(
+        monkeypatch,
+        {"messages": [{"role": "user", "content": CANONICAL}], "context": ctx()},
+    )
+    assert any(name == "plan" for name, _ in events)
+    planning = next(
+        data for name, data in events
+        if name == "status" and data["stage"] == "planning"
+    )
+    assert "经过验证" in planning["detail"]
+
+
 def test_the_plan_carries_a_structured_rationale_and_no_free_text_reasoning(monkeypatch):
     events = read_events(
         monkeypatch,
@@ -373,7 +393,7 @@ def test_the_plan_carries_a_structured_rationale_and_no_free_text_reasoning(monk
 
     assert rationale["source"] == "template"
     assert rationale["platforms"] == ["Amazon", "TikTok Shop", "Shopify"]
-    assert rationale["estimatedModelCalls"] == 4
+    assert rationale["estimatedModelCalls"] == 5
     assert rationale["requiresRunConfirmation"] is True
     assert rationale["publishes"] is False
     assert {n["nodeType"] for n in rationale["nodes"]} == {
@@ -413,7 +433,7 @@ def test_model_plan_streams_deltas_first_and_the_plan_only_after_validation(monk
 
     events = read_events(
         monkeypatch,
-        {"messages": [{"role": "user", "content": "帮我加一个白底主图节点"}], "context": ctx()},
+        {"messages": [{"role": "user", "content": MODEL_REQUEST}], "context": ctx()},
     )
     names = [n for n, _ in events]
     assert names.index("delta") < names.index("plan")
@@ -425,6 +445,26 @@ def test_model_plan_streams_deltas_first_and_the_plan_only_after_validation(monk
     plan = next(d["plan"] for n, d in events if n == "plan")
     assert plan["title"] == "模型计划"
     assert plan["rationale"]["source"] == "model"
+
+
+def test_stream_completes_update_node_type_from_live_canvas(monkeypatch):
+    monkeypatch.setenv("TOKEN_PLAN_API_KEY", SECRET)
+    reply = (
+        "<assistant_reply>准备更新。</assistant_reply>"
+        '<agent_plan>{"title":"更新 SKU","summary":"启用 Amazon",'
+        '"operations":[{"type":"update_node","nodeId":"shape:sku",'
+        '"fields":{"amazon":true}}]}</agent_plan>'
+    )
+    monkeypatch.setattr(
+        token_plan, "_make_client", chunk_stream([sse(delta(reply)), "data: [DONE]\n\n"])
+    )
+    events = read_events(
+        monkeypatch,
+        {"messages": [{"role": "user", "content": "帮我启用 Amazon 货架"}], "context": ctx()},
+    )
+    plan = next(data["plan"] for name, data in events if name == "plan")
+    update = next(op for op in plan["operations"] if op["type"] == "update_node")
+    assert update["nodeType"] == "sku_listing"
 
 
 def test_an_invalid_model_plan_is_dropped_and_the_template_answers(monkeypatch):
@@ -440,7 +480,7 @@ def test_an_invalid_model_plan_is_dropped_and_the_template_answers(monkeypatch):
 
     events = read_events(
         monkeypatch,
-        {"messages": [{"role": "user", "content": CANONICAL}], "context": ctx()},
+        {"messages": [{"role": "user", "content": MODEL_REQUEST}], "context": ctx()},
     )
     warnings = [d["message"] for n, d in events if n == "warning"]
     assert any("未通过校验" in w for w in warnings)
@@ -472,7 +512,7 @@ def test_no_second_model_request_after_a_partial_failure(monkeypatch):
 
     events = read_events(
         monkeypatch,
-        {"messages": [{"role": "user", "content": CANONICAL}], "context": ctx()},
+        {"messages": [{"role": "user", "content": MODEL_REQUEST}], "context": ctx()},
     )
     assert calls["count"] == 1
     text = "".join(d["text"] for n, d in events if n == "delta")
@@ -492,7 +532,7 @@ def test_a_provider_failure_before_any_text_falls_back_to_the_template(monkeypat
 
     events = read_events(
         monkeypatch,
-        {"messages": [{"role": "user", "content": CANONICAL}], "context": ctx()},
+        {"messages": [{"role": "user", "content": MODEL_REQUEST}], "context": ctx()},
     )
     warnings = [d["message"] for n, d in events if n == "warning"]
     assert any("确定性模板" in w for w in warnings)

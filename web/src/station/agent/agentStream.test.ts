@@ -126,6 +126,22 @@ describe('streamAgent', () => {
     expect(result.unsupported).toBe(true);
   });
 
+  it('does not mark transport or server failures as safe automatic fallbacks', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError('connection reset after request upload');
+    });
+    await expect(
+      streamAgent([], CONTEXT, {}, new AbortController().signal),
+    ).rejects.toThrow(/手动重试/);
+
+    vi.stubGlobal('fetch', async () =>
+      sseResponse([], { status: 503, contentType: 'application/json' }),
+    );
+    await expect(
+      streamAgent([], CONTEXT, {}, new AbortController().signal),
+    ).rejects.toThrow(/503/);
+  });
+
   it('does NOT report unsupported once a meaningful event has arrived', async () => {
     // Falling back here would re-show text and spend a second model call.
     const sink = collect();
