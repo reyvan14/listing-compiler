@@ -1,0 +1,233 @@
+/* Plan card + preview overlay. Palette matches stationChrome.module.scss. */
+
+.card {
+  margin-bottom: 10px;
+  border: 1px solid #4a4638;
+  border-radius: 10px;
+  background: #1f1d18;
+  color: #e1ded8;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow: hidden;
+}
+
+.cardHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 12px 0;
+}
+
+.cardTitle {
+  flex: 1;
+  color: #fffdfa;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.state {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid #534f46;
+  color: #b7b2a5;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.stateApplied,
+.stateCompleted {
+  border-color: rgba(122, 199, 129, 0.5);
+  color: #8fd196;
+}
+
+.stateFailed,
+.stateInvalid {
+  border-color: rgba(255, 118, 73, 0.5);
+  color: #ff9c7a;
+}
+
+.stateRunning,
+.stateApplying {
+  border-color: rgba(255, 194, 73, 0.5);
+  color: #ffce7a;
+}
+
+.summary {
+  padding: 6px 12px 0;
+  color: #b7b2a5;
+  font-size: 12px;
+}
+
+.rows {
+  margin: 8px 0 0;
+  padding: 0 12px;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid #2b2822;
+  font-size: 12px;
+}
+
+.row:first-child {
+  border-top: 0;
+}
+
+.rowLabel {
+  flex: none;
+  width: 108px;
+  color: #fffdfa;
+}
+
+.rowDetail {
+  flex: 1;
+  min-width: 0;
+  color: #b7b2a5;
+  overflow-wrap: anywhere;
+}
+
+.rowRun .rowLabel {
+  color: #ffce7a;
+}
+
+.meta {
+  padding: 8px 12px 0;
+  color: #8f8a7d;
+  font-size: 11px;
+}
+
+.warnings {
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 194, 73, 0.1);
+  border: 1px solid rgba(255, 194, 73, 0.3);
+  color: #ffce7a;
+  font-size: 11.5px;
+  list-style: none;
+}
+
+.warnings li + li {
+  margin-top: 4px;
+}
+
+.errors {
+  composes: warnings;
+  background: rgba(255, 118, 73, 0.12);
+  border-color: rgba(255, 118, 73, 0.4);
+  color: #ff9c7a;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 12px 12px;
+}
+
+.actions button {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid #534f46;
+  border-radius: 6px;
+  background: #26231c;
+  color: #e1ded8;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.actions button:hover:not(:disabled) {
+  background: #322f26;
+}
+
+.actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.primary {
+  border-color: #ffc249 !important;
+  background: #ffc249 !important;
+  color: #191816 !important;
+}
+
+.confirm {
+  margin: 0 12px 12px;
+  padding: 10px;
+  border: 1px solid rgba(255, 194, 73, 0.45);
+  border-radius: 8px;
+  background: rgba(255, 194, 73, 0.08);
+  color: #ffce7a;
+  font-size: 12px;
+}
+
+.confirm p {
+  margin: 0 0 8px;
+}
+
+.confirmBtns {
+  display: flex;
+  gap: 6px;
+}
+
+/* ---- canvas preview overlay ---- */
+
+.previewLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.previewBox {
+  position: absolute;
+  border: 2px dashed #ffc249;
+  border-radius: 10px;
+  background: rgba(255, 194, 73, 0.09);
+  box-sizing: border-box;
+}
+
+.previewUpdate {
+  border-style: solid;
+  border-color: #7ac781;
+  background: rgba(122, 199, 129, 0.1);
+}
+
+.previewTag {
+  position: absolute;
+  top: -9px;
+  left: 8px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #ffc249;
+  color: #191816;
+  font-family: 'PingFang SC', Inter, sans-serif;
+  font-size: 10px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.previewUpdate .previewTag {
+  background: #7ac781;
+}
+
+.previewHint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(31, 29, 24, 0.94);
+  border: 1px solid #4a4638;
+  color: #ffce7a;
+  font-family: 'PingFang SC', Inter, sans-serif;
+  font-size: 12px;
+  white-space: nowrap;
+}

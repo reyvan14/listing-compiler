@@ -259,6 +259,25 @@ export function focusShape(editor: Editor, shapeId: string) {
   frameToBounds(editor, b, { minZoom: 0.6, maxZoom: 1.1, gutter: agentGutterPx() })
 }
 
+/** Zoom to the union of several shapes (used by the Agent's "定位改动"). */
+export function focusShapes(editor: Editor, shapeIds: string[]) {
+  let box: { x: number; y: number; w: number; h: number } | null = null
+  for (const id of shapeIds) {
+    const b = editor.getShapePageBounds(id as TLShapeId)
+    if (!b) continue
+    box = box
+      ? {
+          x: Math.min(box.x, b.x),
+          y: Math.min(box.y, b.y),
+          w: Math.max(box.x + box.w, b.x + b.w) - Math.min(box.x, b.x),
+          h: Math.max(box.y + box.h, b.y + b.h) - Math.min(box.y, b.y),
+        }
+      : { x: b.x, y: b.y, w: b.w, h: b.h }
+  }
+  if (!box) return frameStation(editor)
+  frameToBounds(editor, box, { minZoom: 0.5, maxZoom: 1.1, gutter: agentGutterPx() })
+}
+
 /** All listing_result shapes on the page, keyed by their artifactId (platform). */
 export function listingResultShapes(editor: Editor): Map<string, NodeShape> {
   const out = new Map<string, NodeShape>()

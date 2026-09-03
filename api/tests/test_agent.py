@@ -1,4 +1,8 @@
-"""agent_reply: Token Plan chat + preserved keyword fallback."""
+"""agent_reply: Token Plan chat + preserved keyword fallback.
+
+agent_reply now returns {"reply", "plan"} so it can propose canvas operations;
+the keyword fallback behaviour it had before is unchanged underneath.
+"""
 
 from __future__ import annotations
 
@@ -13,12 +17,15 @@ def run(coro):
 
 
 def test_empty_messages_returns_hint():
-    assert run(agent.agent_reply([])) == "直接问上新规则，或把提示词贴过来。"
+    out = run(agent.agent_reply([]))
+    assert out["plan"] is None
+    assert "规则" in out["reply"] or "流程" in out["reply"]
 
 
 def test_falls_back_to_keyword_reply_when_unconfigured():
-    reply = run(agent.agent_reply([{"role": "user", "content": "主图能加字吗"}]))
-    assert "白底" in reply  # deterministic fallback_reply branch
+    out = run(agent.agent_reply([{"role": "user", "content": "主图能加字吗"}]))
+    assert "白底" in out["reply"]  # deterministic fallback_reply branch
+    assert out["plan"] is None  # a question is not a canvas request
 
 
 def test_uses_token_plan_when_configured(monkeypatch):
@@ -33,7 +40,8 @@ def test_uses_token_plan_when_configured(monkeypatch):
     monkeypatch.setattr(token_plan, "chat_completion", fake_chat)
     out = run(agent.agent_reply([{"role": "user", "content": "hi"}]))
 
-    assert out == "这是模型回答"
+    assert out["reply"] == "这是模型回答"
+    assert out["plan"] is None
     assert seen["model"] == "qwen3.7-plus"
     assert seen["system"] == "system"
 
@@ -45,5 +53,5 @@ def test_provider_error_falls_back(monkeypatch):
         raise token_plan.TokenPlanError("timeout", request_id="abc123def456")
 
     monkeypatch.setattr(token_plan, "chat_completion", boom)
-    reply = run(agent.agent_reply([{"role": "user", "content": "BPA 证书怎么处理"}]))
-    assert "BPA" in reply
+    out = run(agent.agent_reply([{"role": "user", "content": "BPA 证书怎么处理"}]))
+    assert "BPA" in out["reply"]

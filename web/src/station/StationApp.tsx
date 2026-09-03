@@ -342,7 +342,7 @@ export function StationApp() {
       <div className={styles.canvas}>
         <StationCanvas onScreen={onScreen} onEditor={setEditor} />
         {editor && <StationSidebar editor={editor} />}
-        <StationAgent collapsed={agentCollapsed} onToggle={toggleAgent} />
+        <StationAgent editor={editor} collapsed={agentCollapsed} onToggle={toggleAgent} />
       </div>
 
       {rulesOpen && <RulesDrawer onClose={() => setRulesOpen(false)} returnFocusTo={rulesBtnRef} />}

@@ -469,12 +469,20 @@ async def media_video(body: MediaVideoBody):
 
 class AgentChatBody(BaseModel):
     messages: list[dict] = Field(default_factory=list)
+    #: Compact canvas snapshot. Treated as untrusted data by the agent prompt,
+    #: never as instructions.
+    context: dict[str, Any] = Field(default_factory=dict)
 
 
 @app.post("/api/agent/chat")
 async def agent_chat(body: AgentChatBody):
-    reply = await agent_reply(body.messages)
-    return {"code": 0, "data": {"reply": reply}}
+    """Reply plus an OPTIONAL structured canvas plan.
+
+    A plan is a proposal only: the client validates it again and applies it in
+    one transaction after the user approves. Nothing here mutates a canvas.
+    """
+    result = await agent_reply(body.messages, body.context)
+    return {"code": 0, "data": {"reply": result["reply"], "plan": result.get("plan")}}
 
 
 # --------------------------------------------------------------------------- #
