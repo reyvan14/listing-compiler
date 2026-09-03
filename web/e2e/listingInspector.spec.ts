@@ -22,7 +22,22 @@ async function generate(page: Page) {
   await page.click('#station-fill');
   await page.waitForTimeout(150);
   await page.click('#station-generate');
-  await page.waitForSelector('[data-testid="listing-result"]', { timeout: 25_000 });
+  // tldraw virtualises shapes outside the viewport. Waiting for the first DOM
+  // result to be visible is therefore order-dependent: the first matched card
+  // may be culled while another result is already visible. Wait on the editor
+  // model, which is the actual generation-complete state.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const editor = (window as unknown as { editor: any }).editor;
+          return editor
+            .getCurrentPageShapes()
+            .filter((s: any) => s.props?.node?.type === 'listing_result').length;
+        }),
+      { timeout: 25_000 },
+    )
+    .toBe(3);
   await page.waitForTimeout(1200);
 }
 

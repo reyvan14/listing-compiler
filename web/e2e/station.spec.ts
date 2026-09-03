@@ -204,19 +204,35 @@ test('P1.11 immediately after generation every result card is outside the Agent 
   const vw = testInfo.project.use.viewport!.width;
   const agentLeft = await agentLeftEdge(page, vw);
 
-  // Cards are compact summaries now; identify them by their stable testid
-  // (the copy button moved into the expanded detail view).
-  const cards = page.locator('[data-testid="listing-result"]');
-  const count = await cards.count();
-  expect(count).toBe(3);
+  // Read geometry from the editor model rather than DOM bounding boxes.
+  // tldraw deliberately culls a vertically off-screen card at this viewport,
+  // but the invariant under test is horizontal: no card may sit beneath the
+  // Agent overlay. A culled DOM element has a null boundingBox even though its
+  // canvas geometry is valid.
+  const cards = await page.evaluate(() => {
+    const editor = (window as unknown as { editor: any }).editor;
+    const camera = editor.getCamera();
+    return editor
+      .getCurrentPageShapes()
+      .filter((s: any) => s.props?.node?.type === 'listing_result')
+      .map((s: any) => {
+        const b = editor.getShapePageBounds(s.id);
+        return {
+          platform: s.props.node.platform,
+          x: (b.x + camera.x) * camera.z,
+          width: b.w * camera.z,
+        };
+      });
+  });
+  expect(cards).toHaveLength(3);
 
-  for (let i = 0; i < count; i++) {
-    const box = await cards.nth(i).boundingBox();
-    expect(box, `card ${i} must be rendered`).not.toBeNull();
-    // complete bounding box, right edge must clear the Agent panel
-    expect(box!.x + box!.width, `card ${i} right edge (${Math.round(box!.x + box!.width)}) <= agent left (${Math.round(agentLeft)})`).toBeLessThanOrEqual(agentLeft + 1);
-    expect(box!.x, `card ${i} left edge on screen`).toBeGreaterThanOrEqual(-1);
-    expect(box!.width).toBeGreaterThan(180);
+  for (const box of cards) {
+    expect(
+      box.x + box.width,
+      `${box.platform} right edge (${Math.round(box.x + box.width)}) <= agent left (${Math.round(agentLeft)})`,
+    ).toBeLessThanOrEqual(agentLeft + 1);
+    expect(box.x, `${box.platform} left edge on screen`).toBeGreaterThanOrEqual(-1);
+    expect(box.width).toBeGreaterThan(180);
   }
   await page.screenshot({ path: `${SHOTS}/${tag(testInfo)}-03-after-generate-agent-open.png` });
 
