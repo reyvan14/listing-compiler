@@ -120,10 +120,13 @@ export function PassportPanel({ editor, onClose }: { editor: Editor; onClose: ()
       const anchor = document.createElement('a');
       anchor.href = url;
       anchor.download = result.filename;
+      anchor.rel = 'noopener';
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      URL.revokeObjectURL(url);
+      // Revoke later: doing it synchronously can abort the download before the
+      // browser has read the blob.
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
       // build() clears transient messages, so refresh first and announce after.
       await build();
       if (mounted.current) {

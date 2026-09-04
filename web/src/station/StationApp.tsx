@@ -39,6 +39,8 @@ import { ListingInspector } from './ListingInspector';
 import { MigrationPanel } from './MigrationPanel';
 import { PortfolioPanel } from './PortfolioPanel';
 import { PassportPanel } from './passport/PassportPanel';
+import { ProjectMenu } from './project/ProjectMenu';
+import { useProjectPersistence } from './project/useProjectPersistence';
 import { StationAgent } from './StationAgent';
 import { StationSidebar } from './StationSidebar';
 import styles from './nodes.module.scss';
@@ -69,9 +71,12 @@ function StationScreenSync({ onScreen }: { onScreen: (screen: StationScreen) => 
 function StationCanvas({
   onScreen,
   onEditor,
+  onRestore,
 }: {
   onScreen: (screen: StationScreen) => void;
   onEditor: (editor: Editor) => void;
+  /** Load a stored project. Returns true when one was restored. */
+  onRestore: (editor: Editor) => boolean;
 }) {
   const components = useMemo(
     () => ({
@@ -116,9 +121,16 @@ function StationCanvas({
           }
           keepConnectionsAtBottom(next);
           disableTransparency(next, ['connection']);
-          // Only the SKU listing node is seeded. Media (image / video) nodes are
-          // added on demand via the sidebar, not on first load.
-          ensureSkuNode(next);
+          // Restore first, then seed only if there was nothing to restore.
+          // Seeding before restoring would either duplicate the SKU node or
+          // discard it a moment later — and re-running the code that built the
+          // graph would mint new nodes for work the operator already did.
+          const restored = onRestore(next);
+          if (!restored) {
+            // Only the SKU listing node is seeded. Media (image / video) nodes
+            // are added on demand via the sidebar, not on first load.
+            ensureSkuNode(next);
+          }
           next.selectNone();
           requestAnimationFrame(() => frameStation(next));
         }}
@@ -151,6 +163,9 @@ export function StationApp() {
   const [toast, setToast] = useState('');
   const [editor, setEditor] = useState<Editor | null>(null);
   const [source, setSource] = useState<ListingResultSource | null>(null);
+  // Browser-local project persistence. Owns auto-save and restore; the
+  // server keeps its own durable records and is not duplicated here.
+  const project = useProjectPersistence(editor);
   const [agentCollapsed, setAgentCollapsed] = useState<boolean>(() => readAgentCollapsed());
   const [narrow, setNarrow] = useState(
     () => typeof window !== 'undefined' && window.innerWidth < DESKTOP_MIN_WIDTH,
@@ -328,6 +343,16 @@ export function StationApp() {
           >
             发布护照
           </button>
+          {editor && (
+            <ProjectMenu
+              editor={editor}
+              status={project.status}
+              onSaveNow={project.saveNow}
+              onRestoreBackup={project.restoreBackup}
+              onApply={project.applySnapshot}
+              onForget={project.forget}
+            />
+          )}
         </div>
       </header>
 
@@ -350,7 +375,7 @@ export function StationApp() {
       )}
 
       <div className={styles.canvas}>
-        <StationCanvas onScreen={onScreen} onEditor={setEditor} />
+        <StationCanvas onScreen={onScreen} onEditor={setEditor} onRestore={project.restoreInto} />
         {editor && <StationSidebar editor={editor} />}
         <StationAgent editor={editor} collapsed={agentCollapsed} onToggle={toggleAgent} />
       </div>
