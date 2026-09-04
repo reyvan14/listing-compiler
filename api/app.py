@@ -24,6 +24,7 @@ import agent_plan
 import evidence
 import imagecheck
 import mediaassets
+import passport
 import migration
 import policy
 import portfolio
@@ -64,7 +65,9 @@ async def scope_evidence_ledger(request: Request, call_next):
     ids are client-supplied isolation keys, not credentials, and the store
     hashes them before they become a path segment either way.
     """
-    if not request.url.path.startswith(("/api/evidence", "/api/review", "/api/media/assets")):
+    if not request.url.path.startswith(
+        ("/api/evidence", "/api/review", "/api/media/assets", "/api/passport")
+    ):
         return await call_next(request)
     params = request.query_params
     tokens = evidence.store.push_scope(
@@ -638,6 +641,116 @@ def media_asset_verify(asset_id: str):
 @app.delete("/api/media/assets/{asset_id}")
 def media_asset_delete(asset_id: str):
     return {"code": 0, "data": {"removed": mediaassets.delete_asset(asset_id)}}
+
+
+# --------------------------------------------------------------------------- #
+# Release Passport. Assembles a handoff record from stored entity ids and       #
+# exports a deterministic package. Nothing here publishes to a marketplace.     #
+# --------------------------------------------------------------------------- #
+
+
+def _passport_error(exc: passport.PassportError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.http_status,
+        content={"code": 1, "error": exc.code, "message": exc.safe_message},
+    )
+
+
+class BuildPassportBody(BaseModel):
+    sku_id: str
+    platform: Literal["amazon", "tiktok", "shopify"]
+    project_id: str = ""
+    #: Operator declarations. Never inferred from product data.
+    language: str = ""
+    currency: str = ""
+    unit_system: str = ""
+
+
+@app.post("/api/passport/build")
+def passport_build(body: BuildPassportBody):
+    """Recompute readiness from current records and store the passport."""
+    try:
+        record = passport.build(
+            body.sku_id,
+            body.platform,
+            project_id=body.project_id,
+            overrides={
+                "language": body.language,
+                "currency": body.currency,
+                "unit_system": body.unit_system,
+            },
+        )
+    except passport.PassportError as exc:
+        return _passport_error(exc)
+    return {"code": 0, "data": {"passport": record}}
+
+
+@app.get("/api/passport/list")
+def passport_list(sku_id: str = Query(""), platform: str = Query("")):
+    return {
+        "code": 0,
+        "data": {"passports": passport.list_passports(sku_id=sku_id, platform=platform)},
+    }
+
+
+@app.get("/api/passport/{passport_id}")
+def passport_get(passport_id: str):
+    try:
+        return {"code": 0, "data": {"passport": passport.get(passport_id)}}
+    except passport.PassportError as exc:
+        return _passport_error(exc)
+
+
+class ExportPassportBody(BaseModel):
+    """Export is a confirmed domain action, so the confirmation is in the payload.
+
+    The flag is not decoration: the endpoint refuses without it, so a stray or
+    replayed request cannot produce a handoff package that looks like a
+    deliberate one.
+    """
+
+    confirm: bool = False
+
+
+@app.post("/api/passport/{passport_id}/export")
+def passport_export(passport_id: str, body: ExportPassportBody):
+    if not body.confirm:
+        return JSONResponse(
+            status_code=428,
+            content={
+                "code": 1,
+                "error": "confirmation_required",
+                "message": "导出交接包需要显式确认。本操作不会向任何平台发布。",
+            },
+        )
+    try:
+        built = passport.build_package(passport_id)
+    except passport.PassportError as exc:
+        return _passport_error(exc)
+
+    filename = f"{passport_id}-{built['manifest']['sku_id']}-{built['manifest']['platform']}.zip"
+    return Response(
+        content=built["package"],
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{passport.safe_path(filename)}"',
+            "X-Package-Digest": built["export"]["digest"],
+            "X-Package-Files": str(built["export"]["files"]),
+        },
+    )
+
+
+@app.get("/api/passport/{passport_id}/manifest")
+def passport_manifest(passport_id: str):
+    """The manifest alone, so the UI can show package contents before exporting.
+
+    Previewing contents is not exporting, so this records nothing.
+    """
+    try:
+        built = passport.build_package(passport_id, record=False)
+    except passport.PassportError as exc:
+        return _passport_error(exc)
+    return {"code": 0, "data": {"manifest": built["manifest"], "export": built["export"]}}
 
 
 # --------------------------------------------------------------------------- #

@@ -38,6 +38,7 @@ import { fallbackRules, fetchRules, toSafeMessage, type RulesResult } from './ru
 import { ListingInspector } from './ListingInspector';
 import { MigrationPanel } from './MigrationPanel';
 import { PortfolioPanel } from './PortfolioPanel';
+import { PassportPanel } from './passport/PassportPanel';
 import { StationAgent } from './StationAgent';
 import { StationSidebar } from './StationSidebar';
 import styles from './nodes.module.scss';
@@ -146,6 +147,7 @@ export function StationApp() {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [migrationOpen, setMigrationOpen] = useState(false);
   const [portfolioOpen, setPortfolioOpen] = useState(false);
+  const [passportOpen, setPassportOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [editor, setEditor] = useState<Editor | null>(null);
   const [source, setSource] = useState<ListingResultSource | null>(null);
@@ -318,6 +320,14 @@ export function StationApp() {
           >
             批量迁移
           </button>
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            id="station-passport"
+            onClick={() => setPassportOpen(true)}
+          >
+            发布护照
+          </button>
         </div>
       </header>
 
@@ -354,6 +364,12 @@ export function StationApp() {
       {/* Portfolio-wide migration. A table-shaped problem, so it is a compact
           dashboard rather than hundreds of canvas nodes. */}
       {portfolioOpen && <PortfolioPanel onClose={() => setPortfolioOpen(false)} />}
+
+      {/* Release Passport. Reads stored records only; exporting a handoff
+          package is a confirmed action and publishes to nothing. */}
+      {passportOpen && editor && (
+        <PassportPanel editor={editor} onClose={() => setPassportOpen(false)} />
+      )}
 
       {/* Viewport-level listing detail. Reads the shapes, never writes them, so
           the canvas geometry and camera are untouched while it is open. */}
