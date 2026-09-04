@@ -100,6 +100,48 @@ draft → in_review → needs_changes → validated → approved → superseded 
 `api/evidence_store/.../reviews.json`，原子替换写入，不入库。
 **批准只代表内部复核通过**：本工具不做平台发布，也不代表任何平台的审核结论。
 
+## 真实像素的图片合规检查（Phase 1B）
+
+图片检查全部基于**解码后的图片本身**。提示词写了「纯白背景」、文件名叫 `white.png`、
+生成模式选了 compliant——这些都不构成任何证据。
+
+每张图（生成的和上传的走同一条路）会记录：内容 SHA-256、由**文件字节**推断的格式与 MIME、
+宽高、精确约分的宽高比、字节数、色彩模式、是否含 alpha 通道、检查时间与方法版本。
+空文件、截断、损坏、超限（20 MB / 50 MP）、不支持的格式，以及**声明类型与字节不符**的文件
+一律拒绝；被拒绝的文件不会进入账本，也不会破坏已有的图片或修订。
+
+**背景是量出来的。** 沿四条边按固定网格采样 96 个像素点，取各通道中位数作为背景估计
+（中位数能扛住 logo 或产品边缘伸进采样带），一致度 = 与估计色相符的采样点占比
+（容差 ±8/通道）。带透明通道的图会先合成到白底再测量——透明的角落不是白背景的证据，
+但也不该被读成黑色。方法版本 `border-sample-median/v1` 随结果一起记录。
+
+**判不了的就说判不了。** 结果状态有五种：`pass` / `fail` / `warning` /
+`manual_review` / `unavailable`。主体占比、叠加文字与 logo 需要目标检测与 OCR，
+本工具未启用，一律返回 `manual_review`，永远不会静默通过。界面上也不会因此显示「合规」：
+可判定项全通过时的最好说法是「可机械判定的项均通过」。
+
+规则来自**同一套版本化政策快照**（`api/policy/snapshots/*.yaml`），与文本规则并列，
+新增 `image_format` / `image_min_dimensions` / `image_max_dimensions` / `image_max_bytes` /
+`image_aspect_ratio` / `image_no_transparency` / `image_white_background` /
+`image_subject_coverage` / `image_no_overlaid_text` 九种 rule kind。
+每条结果都带 rule ID、政策快照 ID、实测值、要求值、判定方法与所属图片。
+文本引擎不判定任何 `image_*` 规则，图片检查器不判定任何文本规则，两者结论互不顶替。
+
+| 接口 | 说明 |
+|---|---|
+| `POST /api/media/assets/upload` | 上传图片并检查（multipart） |
+| `POST /api/media/assets` | 登记并检查浏览器已持有的 data URL 图片 |
+| `GET /api/media/assets` · `GET /api/media/assets/{id}` | 图片资产清单 / 单条记录 |
+| `GET /api/media/assets/{id}/original` | 被检查的原始字节（供灯箱打开） |
+| `POST /api/media/assets/{id}/verify` | 重新哈希并比对记录的 SHA-256 |
+
+服务端**不会代为抓取任意 URL**：只接受 `data:` URL 与 multipart 上传，避免把检查接口
+变成请求转发器。原图接口允许用 query 传作用域，因为 `<img src>` 带不了自定义头；
+作用域是隔离键，不是凭证。
+
+演示卡片使用的是 SVG 矢量占位图，没有可采样的像素，界面会如实说明需要真实的
+PNG / JPEG 才能做像素级检查。
+
 ## 自愈式 Listing CI/CD
 
 当 SKU 事实（品名 / 卖点）或平台政策变化时：

@@ -17,6 +17,7 @@ import {
 } from '@/pipeline/nodes/types/skuStation'
 import { ViewOriginalButton, useImageLightbox } from '@/components/useImageLightbox'
 import { EvidenceTab, EvidenceVerdictSummary } from './EvidenceTab'
+import { ImageInspection } from './media/ImageInspection'
 import { ReviewTab } from './review/ReviewTab'
 import { useEvidenceGate } from './useEvidenceGate'
 import styles from './listingInspector.module.scss'
@@ -248,7 +249,7 @@ export function ListingInspector({ editor }: { editor: Editor }) {
         <div className={styles.content} data-testid="inspector-content" data-tab={tab}>
           {tab === 'content' && <ContentTab node={node} />}
           {tab === 'review' && <ReviewTab node={node} sku={sku} productId={productId} />}
-          {tab === 'compliance' && <ComplianceTab node={node} gate={gate} />}
+          {tab === 'compliance' && <ComplianceTab node={node} gate={gate} productId={productId} />}
           {tab === 'evidence' && (
             <EvidenceTab node={node} gate={gate} productId={productId} onLedgerChange={reloadGate} />
           )}
@@ -392,9 +393,11 @@ function ContentTab({ node }: { node: ListingResultNode }) {
 function ComplianceTab({
   node,
   gate,
+  productId,
 }: {
   node: ListingResultNode
   gate: import('./useEvidenceGate').GateState
+  productId: string
 }) {
   const blocking = blockingChecks(node)
   const others = node.checks.filter(c => !c.blocking)
@@ -443,6 +446,8 @@ function ComplianceTab({
           </ul>
         </section>
       )}
+
+      <ImageInspection node={node} productId={productId} />
 
       {others.length > 0 && (
         <section className={styles.block}>

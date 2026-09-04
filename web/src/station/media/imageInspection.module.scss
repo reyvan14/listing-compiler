@@ -1,0 +1,380 @@
+/* 图片检查区块。与检查器同一套暖色深色系。 */
+
+.block {
+  padding: 12px 14px;
+  border: 1px solid #352f25;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+
+  h3 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    color: #f4f1ea;
+  }
+}
+
+.kicker {
+  font-size: 11px;
+  color: #8d887c;
+}
+
+.muted {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #8d887c;
+
+  code {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #a8a49b;
+  }
+}
+
+.error {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px solid #7a4433;
+  border-radius: 8px;
+  background: rgba(122, 68, 51, 0.18);
+  font-size: 12px;
+  line-height: 1.6;
+  color: #ff9c7a;
+}
+
+.notice {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #7ee0b0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+
+  button,
+  .upload {
+    padding: 6px 12px;
+    border: 1px solid #4a4335;
+    border-radius: 7px;
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    color: #cfc9bd;
+    cursor: pointer;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.upload {
+  display: inline-flex;
+  align-items: center;
+
+  input {
+    display: none;
+  }
+}
+
+/* ---- 资产 -------------------------------------------------------------- */
+.assetList {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.asset {
+  padding: 10px;
+  border: 1px solid #3a3327;
+  border-radius: 9px;
+}
+
+.assetHead {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 92px;
+  height: 92px;
+  overflow: hidden;
+  border: 1px solid #3a3327;
+  border-radius: 7px;
+  /* a checkerboard, so a transparent image is visibly transparent */
+  background-color: #2a2621;
+  background-image:
+    linear-gradient(45deg, #221f1a 25%, transparent 25%),
+    linear-gradient(-45deg, #221f1a 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #221f1a 75%),
+    linear-gradient(-45deg, transparent 75%, #221f1a 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+}
+
+.assetMeta {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.assetTop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+
+  b {
+    color: #f4f1ea;
+  }
+}
+
+.origin {
+  padding: 1px 7px;
+  border: 1px solid #4a4335;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #a8a49b;
+}
+
+.verdict {
+  padding: 1px 8px;
+  border: 1px solid #4a4335;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #cfc9bd;
+
+  &[data-tone='ok'] {
+    color: #7ee0b0;
+    border-color: #3f6b56;
+  }
+
+  &[data-tone='warn'] {
+    color: #ffce7a;
+    border-color: #6b5a35;
+  }
+
+  &[data-tone='danger'] {
+    color: #ff9c7a;
+    border-color: #7a4433;
+  }
+}
+
+.measureGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px 14px;
+  margin: 8px 0 0;
+
+  dt {
+    font-size: 11px;
+    color: #8d887c;
+  }
+
+  dd {
+    margin: 1px 0 0;
+    font-size: 12px;
+    color: #e1ded8;
+    overflow-wrap: anywhere;
+  }
+
+  code {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 11px;
+    color: #cfc9bd;
+  }
+}
+
+/* ---- 背景采样 ---------------------------------------------------------- */
+.background {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid #352f25;
+  border-radius: 7px;
+
+  h4 {
+    margin: 0 0 6px;
+    font-size: 12px;
+    color: #a8a49b;
+  }
+}
+
+.bgRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #cfc9bd;
+
+  code {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+
+.swatch {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #4a4335;
+  border-radius: 4px;
+}
+
+/* ---- 结果 -------------------------------------------------------------- */
+.results {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  li {
+    padding: 8px 10px;
+    border: 1px solid #3a3327;
+    border-left-width: 3px;
+    border-radius: 7px;
+
+    &[data-state='fail'] {
+      border-left-color: #ff7649;
+    }
+
+    &[data-state='warning'] {
+      border-left-color: #ffce7a;
+    }
+
+    &[data-state='manual_review'],
+    &[data-state='unavailable'] {
+      border-left-color: #6a6357;
+    }
+
+    &[data-state='pass'] {
+      border-left-color: #3f6b56;
+    }
+  }
+}
+
+.resultHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+
+  code {
+    font-size: 11px;
+    color: #a8a49b;
+  }
+}
+
+.chip {
+  padding: 1px 8px;
+  border: 1px solid #4a4335;
+  border-radius: 999px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: #cfc9bd;
+
+  &[data-tone='ok'] {
+    color: #7ee0b0;
+    border-color: #3f6b56;
+  }
+
+  &[data-tone='warn'] {
+    color: #ffce7a;
+    border-color: #6b5a35;
+  }
+
+  &[data-tone='danger'] {
+    color: #ff9c7a;
+    border-color: #7a4433;
+  }
+}
+
+.detail {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #cfc9bd;
+}
+
+.compare {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: #8d887c;
+
+  b {
+    color: #a8a49b;
+    font-weight: 600;
+  }
+
+  code {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+
+.openNote {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px dashed #6a6357;
+  border-radius: 7px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #cfc9bd;
+}
+
+.assetActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+
+  button {
+    padding: 4px 10px;
+    border: 1px solid #4a4335;
+    border-radius: 6px;
+    background: transparent;
+    font: inherit;
+    font-size: 11px;
+    color: #cfc9bd;
+    cursor: pointer;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.07);
+    }
+  }
+}

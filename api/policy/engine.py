@@ -210,8 +210,12 @@ def evaluate_rule(rule: PolicyRule, artifact: dict[str, Any]) -> RuleResult:
             over,
         )
 
-    if kind == "image_white_background":
-        return result(True, False, "主图规则需人工/像素核验，机械检查不判定。")
+    if kind.startswith("image_"):
+        # Image rules are graded from decoded pixels by imagecheck.py, against
+        # this same snapshot. The text engine reports them as out of its scope
+        # rather than passing them, so a listing can never look compliant on the
+        # strength of a rule nobody evaluated.
+        return result(True, False, "图片规则由图片检查器按像素判定，文本引擎不作判定。")
 
     # kind == "text" or any informational rule
     return result(True, False, rule.description or "说明性条款，不做机械判定。")

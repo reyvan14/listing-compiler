@@ -98,3 +98,32 @@ rules:
     severity: warn
     params: {}
     description: 商品卡主图偏白底、无加字；信息流广告封面是另一套素材，走投放条。
+  - id: tiktok.main_image.format
+    kind: image_format
+    field: tiktok:main_image
+    severity: blocking
+    params:
+      allowed: ["JPEG", "PNG", "WEBP"]
+    description: 商品卡主图格式需为 JPEG / PNG / WEBP。
+  - id: tiktok.main_image.min_dimensions
+    kind: image_min_dimensions
+    field: tiktok:main_image
+    severity: blocking
+    params:
+      min_width: 600
+      min_height: 600
+    description: 商品卡主图每边不得小于 600px。
+  - id: tiktok.main_image.aspect_ratio
+    kind: image_aspect_ratio
+    field: tiktok:main_image
+    severity: warn
+    params:
+      allowed: ["1:1", "3:4"]
+      tolerance: 0.02
+    description: 商品卡主图目标比例 1:1 或 3:4；其他比例会被裁切。
+  - id: tiktok.main_image.no_overlaid_text
+    kind: image_no_overlaid_text
+    field: tiktok:main_image
+    severity: blocking
+    params: {}
+    description: 商品卡主图不得加字。判定需 OCR，本工具未启用，转人工复核。

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import logging
 
 from pathlib import Path
@@ -20,6 +22,8 @@ from pydantic import BaseModel, Field
 
 import agent_plan
 import evidence
+import imagecheck
+import mediaassets
 import migration
 import policy
 import portfolio
@@ -50,14 +54,22 @@ app.add_middleware(
 async def scope_evidence_ledger(request: Request, call_next):
     """Keep the public demo's mutable data browser/product isolated.
 
-    Review revisions live in the same scoped directory as the evidence they are
-    graded against, so they share one scope rather than inventing a second.
+    Review revisions and inspected media live in the same scoped directory as
+    the evidence they are graded against, so they share one scope rather than
+    inventing a second.
+
+    The scope normally arrives in headers. Query parameters are accepted as a
+    fallback because an ``<img src>`` cannot carry headers, and the inspected
+    original has to be openable in the lightbox. That is not a weakening: these
+    ids are client-supplied isolation keys, not credentials, and the store
+    hashes them before they become a path segment either way.
     """
-    if not request.url.path.startswith(("/api/evidence", "/api/review")):
+    if not request.url.path.startswith(("/api/evidence", "/api/review", "/api/media/assets")):
         return await call_next(request)
+    params = request.query_params
     tokens = evidence.store.push_scope(
-        request.headers.get("x-workspace-id", "public"),
-        request.headers.get("x-product-id", "default-product"),
+        request.headers.get("x-workspace-id") or params.get("workspace") or "public",
+        request.headers.get("x-product-id") or params.get("product") or "default-product",
     )
     try:
         return await call_next(request)
@@ -477,6 +489,155 @@ def review_diff(base: str = Query(...), target: str = Query(...)):
         return {"code": 0, "data": review.diff_revisions(base, target)}
     except review.ReviewError as exc:
         return _review_error(exc)
+
+
+# --------------------------------------------------------------------------- #
+# Image compliance inspection. Every verdict is measured from decoded pixels    #
+# against the same versioned policy snapshots that gate the text; nothing here  #
+# infers a result from a prompt, a filename or an asset mode.                   #
+# --------------------------------------------------------------------------- #
+
+
+def _image_error(exc: imagecheck.ImageInspectionError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.http_status,
+        content={"code": 1, "error": exc.code, "message": exc.safe_message},
+    )
+
+
+def _decode_data_url(value: str) -> "tuple[bytes, str]":
+    """Bytes and declared MIME from a ``data:image/...;base64,`` URL.
+
+    Only data URLs are accepted. Fetching an arbitrary caller-supplied URL from
+    the server would make this endpoint a request forwarder into whatever the
+    backend can reach, which is not a trade worth making for a convenience.
+    """
+    raw = (value or "").strip()
+    if not raw.startswith("data:"):
+        raise imagecheck.ImageInspectionError(
+            "unsupported_source",
+            "只接受 data: 开头的图片内容；服务器不会代为抓取任意 URL。",
+            status=422,
+        )
+    header, _, payload = raw.partition(",")
+    if not payload:
+        raise imagecheck.ImageInspectionError("bad_data_url", "图片内容为空或格式不正确。")
+    mime = header[5:].split(";")[0].strip().lower()
+    if "base64" not in header:
+        raise imagecheck.ImageInspectionError("bad_data_url", "仅支持 base64 编码的 data URL。")
+    # Bound the decode: a 20 MB image is ~27 MB of base64.
+    if len(payload) > imagecheck.MAX_IMAGE_BYTES * 2:
+        raise imagecheck.ImageInspectionError(
+            "image_too_large",
+            f"图片超过 {imagecheck.MAX_IMAGE_BYTES // (1024 * 1024)} MB 上限。",
+            status=413,
+        )
+    try:
+        return base64.b64decode(payload, validate=True), mime
+    except (binascii.Error, ValueError):
+        raise imagecheck.ImageInspectionError("bad_data_url", "图片内容不是有效的 base64。")
+
+
+class InspectImageBody(BaseModel):
+    """Register and inspect an image the browser already holds as a data URL."""
+
+    data_url: str
+    platform: Literal["amazon", "tiktok", "shopify"]
+    origin: Literal["generated", "uploaded"] = "generated"
+    revision_id: str = ""
+    node_id: str = ""
+    label: str = ""
+
+
+@app.post("/api/media/assets")
+def media_asset_register(body: InspectImageBody):
+    try:
+        data, mime = _decode_data_url(body.data_url)
+        record = mediaassets.put_asset(
+            data,
+            platform=body.platform,
+            origin=body.origin,
+            revision_id=body.revision_id,
+            node_id=body.node_id,
+            label=body.label,
+            declared_mime=mime,
+        )
+    except imagecheck.ImageInspectionError as exc:
+        return _image_error(exc)
+    return {"code": 0, "data": {"asset": record}}
+
+
+@app.post("/api/media/assets/upload")
+async def media_asset_upload(
+    file: UploadFile = File(...),
+    platform: str = Form("amazon"),
+    revision_id: str = Form(""),
+    node_id: str = Form(""),
+    label: str = Form(""),
+):
+    """Upload one image. Same decode, same rules, same records as a generated one."""
+    if platform not in ("amazon", "tiktok", "shopify"):
+        return _image_error(
+            imagecheck.ImageInspectionError("bad_platform", f"未知平台：{platform}")
+        )
+    data = await file.read(imagecheck.MAX_IMAGE_BYTES + 1)
+    try:
+        record = mediaassets.put_asset(
+            data,
+            platform=platform,
+            origin=mediaassets.UPLOADED,
+            revision_id=revision_id,
+            node_id=node_id,
+            label=label,
+            filename=file.filename or "",
+            declared_mime=file.content_type or "",
+        )
+    except imagecheck.ImageInspectionError as exc:
+        return _image_error(exc)
+    return {"code": 0, "data": {"asset": record}}
+
+
+@app.get("/api/media/assets")
+def media_assets_list(revision_id: str = Query(""), platform: str = Query("")):
+    return {
+        "code": 0,
+        "data": {"assets": mediaassets.list_assets(revision_id=revision_id, platform=platform)},
+    }
+
+
+@app.get("/api/media/assets/{asset_id}")
+def media_asset_get(asset_id: str):
+    try:
+        return {"code": 0, "data": {"asset": mediaassets.get_asset(asset_id)}}
+    except imagecheck.ImageInspectionError as exc:
+        return _image_error(exc)
+
+
+@app.get("/api/media/assets/{asset_id}/original")
+def media_asset_original(asset_id: str):
+    """The exact bytes that were inspected, for the existing lightbox."""
+    try:
+        data, mime = mediaassets.read_blob(asset_id)
+    except imagecheck.ImageInspectionError as exc:
+        return _image_error(exc)
+    return Response(
+        content=data,
+        media_type=mime,
+        headers={"Cache-Control": "private, max-age=300", "Content-Disposition": "inline"},
+    )
+
+
+@app.post("/api/media/assets/{asset_id}/verify")
+def media_asset_verify(asset_id: str):
+    try:
+        return {"code": 0, "data": mediaassets.verify_asset(asset_id)}
+    except imagecheck.ImageInspectionError as exc:
+        return _image_error(exc)
+
+
+@app.delete("/api/media/assets/{asset_id}")
+def media_asset_delete(asset_id: str):
+    return {"code": 0, "data": {"removed": mediaassets.delete_asset(asset_id)}}
 
 
 # --------------------------------------------------------------------------- #

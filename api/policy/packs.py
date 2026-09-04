@@ -35,7 +35,19 @@ KNOWN_KINDS: dict[str, tuple[str, ...]] = {
     "no_hashtags": (),
     "promotional_language": (),
     "title_structure": (),
+    # Image rules. Everything except the two manual kinds is settled from real
+    # pixels by imagecheck.py; the text engine never grades them.
     "image_white_background": (),
+    "image_format": ("allowed",),
+    "image_min_dimensions": ("min_width", "min_height"),
+    "image_max_dimensions": ("max_width", "max_height"),
+    "image_max_bytes": ("max",),
+    "image_aspect_ratio": ("allowed",),
+    "image_no_transparency": (),
+    #: Real requirements that need OCR / object detection. imagecheck reports
+    #: them as manual_review rather than pretending to have checked them.
+    "image_subject_coverage": ("min_ratio",),
+    "image_no_overlaid_text": (),
     "text": (),
 }
 

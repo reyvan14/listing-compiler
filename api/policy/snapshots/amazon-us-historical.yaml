@@ -34,6 +34,58 @@ rules:
   - id: amazon.main_image.white_background
     kind: image_white_background
     field: amazon:main_image
+    severity: blocking
+    params:
+      min_channel: 250
+      min_uniformity: 0.95
+    description: 主图背景需为纯白（RGB 255,255,255）。按边缘像素采样判定，不看提示词或文件名。
+  - id: amazon.main_image.format
+    kind: image_format
+    field: amazon:main_image
+    severity: blocking
+    params:
+      allowed: ["JPEG", "PNG", "TIFF", "GIF"]
+    description: 主图文件格式需为 JPEG / PNG / TIFF / GIF。格式取自文件字节，不取扩展名。
+  - id: amazon.main_image.min_dimensions
+    kind: image_min_dimensions
+    field: amazon:main_image
+    severity: blocking
+    params:
+      min_width: 1000
+      min_height: 1000
+    description: 主图每边不得小于 1000px；最长边 1600px 以上才会启用站内缩放。
+  - id: amazon.main_image.max_dimensions
+    kind: image_max_dimensions
+    field: amazon:main_image
+    severity: blocking
+    params:
+      max_width: 10000
+      max_height: 10000
+    description: 主图单边不得超过 10000px。
+  - id: amazon.main_image.aspect_ratio
+    kind: image_aspect_ratio
+    field: amazon:main_image
+    severity: warn
+    params:
+      allowed: ["1:1"]
+      tolerance: 0.02
+    description: 本工具的 Amazon 主图目标比例为 1:1；Amazon 本身未强制正方形，故为提醒而非阻断。
+  - id: amazon.main_image.no_transparency
+    kind: image_no_transparency
+    field: amazon:main_image
     severity: warn
     params: {}
-    description: 主图纯白背景（RGB 255,255,255），主体占比 ≥ 85%，不叠加文字 / logo / 边框 / 水印。
+    description: 纯白底主图不应带 alpha 通道：透明区域换个底色就不再是白色。
+  - id: amazon.main_image.subject_coverage
+    kind: image_subject_coverage
+    field: amazon:main_image
+    severity: warn
+    params:
+      min_ratio: 0.85
+    description: 主体需占据画面 85% 以上。判定需目标检测，本工具未启用，转人工复核。
+  - id: amazon.main_image.no_overlaid_text
+    kind: image_no_overlaid_text
+    field: amazon:main_image
+    severity: blocking
+    params: {}
+    description: 主图不得叠加文字、logo、边框或水印。判定需 OCR 与检测，本工具未启用，转人工复核。

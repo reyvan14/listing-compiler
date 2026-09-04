@@ -22,6 +22,28 @@ rules:
     severity: warn
     params: {}
     description: 商品媒体无强制白底，生活图 / 场景图可用。
+  - id: shopify.product_media.format
+    kind: image_format
+    field: shopify:main_image
+    severity: blocking
+    params:
+      allowed: ["JPEG", "PNG", "WEBP", "GIF"]
+    description: 商品媒体格式需为 JPEG / PNG / WEBP / GIF。
+  - id: shopify.product_media.min_dimensions
+    kind: image_min_dimensions
+    field: shopify:main_image
+    severity: warn
+    params:
+      min_width: 800
+      min_height: 800
+    description: 建议每边不小于 800px，低于该尺寸在高分屏上会发虚。
+  - id: shopify.product_media.max_bytes
+    kind: image_max_bytes
+    field: shopify:main_image
+    severity: blocking
+    params:
+      max: 20971520
+    description: 单个图片文件不得超过 20 MB。
   - id: shopify.copy.brand_voice
     kind: text
     field: shopify:description
