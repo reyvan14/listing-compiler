@@ -23,6 +23,7 @@ import evidence
 import migration
 import policy
 import portfolio
+import review
 import agent_stream
 from agent import agent_reply
 from checker import apply_checks
@@ -47,8 +48,12 @@ app.add_middleware(
 
 @app.middleware("http")
 async def scope_evidence_ledger(request: Request, call_next):
-    """Keep the public demo's mutable evidence data browser/product isolated."""
-    if not request.url.path.startswith("/api/evidence"):
+    """Keep the public demo's mutable data browser/product isolated.
+
+    Review revisions live in the same scoped directory as the evidence they are
+    graded against, so they share one scope rather than inventing a second.
+    """
+    if not request.url.path.startswith(("/api/evidence", "/api/review")):
         return await call_next(request)
     tokens = evidence.store.push_scope(
         request.headers.get("x-workspace-id", "public"),
@@ -305,6 +310,173 @@ def evidence_gate(body: EvidenceGateBody):
             },
         },
     }
+
+
+# --------------------------------------------------------------------------- #
+# Listing review — editable revisions, deterministic validation, human         #
+# approval. Nothing here calls a model, and nothing here publishes anywhere.   #
+# --------------------------------------------------------------------------- #
+
+
+def _review_error(exc: review.ReviewError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.http_status,
+        content={"code": 1, "error": exc.code, "message": exc.safe_message},
+    )
+
+
+class RevisionContent(BaseModel):
+    title: str = ""
+    fields: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class CreateRevisionBody(BaseModel):
+    sku_id: str
+    platform: Literal["amazon", "tiktok", "shopify"]
+    content: RevisionContent
+    project_id: str = ""
+    market: str = "US"
+    locale: str = "en-US"
+    source: str = "generated"
+    generator: dict[str, Any] = Field(default_factory=dict)
+    product_name: str = ""
+    points: str = ""
+    asset_mode: Literal["compliant", "promo"] = "compliant"
+
+
+@app.post("/api/review/revisions")
+def review_create_revision(body: CreateRevisionBody):
+    """Register a generated listing as revision 1 of a reviewable lineage.
+
+    Idempotent for identical generated content, so reopening the reviewer or
+    reloading the page cannot manufacture review history.
+    """
+    try:
+        revision = review.create_revision(
+            sku_id=body.sku_id,
+            platform=body.platform,
+            content=body.content.model_dump(),
+            project_id=body.project_id,
+            market=body.market,
+            locale=body.locale,
+            source=body.source,
+            generator=body.generator,
+            product_name=body.product_name,
+            points=body.points,
+            asset_mode=body.asset_mode,
+        )
+    except review.ReviewError as exc:
+        return _review_error(exc)
+    return {"code": 0, "data": {"revision": revision}}
+
+
+@app.get("/api/review/revisions")
+def review_list_revisions(sku_id: str = Query(""), platform: str = Query("")):
+    return {
+        "code": 0,
+        "data": {"revisions": review.list_revisions(sku_id=sku_id, platform=platform)},
+    }
+
+
+@app.get("/api/review/revisions/{revision_id}")
+def review_get_revision(revision_id: str):
+    try:
+        return {"code": 0, "data": review.revision_view(revision_id)}
+    except review.ReviewError as exc:
+        return _review_error(exc)
+
+
+class SaveDraftBody(BaseModel):
+    content: RevisionContent
+    operator: str = ""
+
+
+@app.post("/api/review/revisions/{revision_id}/draft")
+def review_save_draft(revision_id: str, body: SaveDraftBody):
+    """Save edited copy. Forks a new revision if this one has left ``draft``."""
+    try:
+        revision = review.save_draft(
+            revision_id, body.content.model_dump(), operator=body.operator
+        )
+    except review.ReviewError as exc:
+        return _review_error(exc)
+    return {"code": 0, "data": {"revision": revision, "forked": revision["revision_id"] != revision_id}}
+
+
+class OperatorBody(BaseModel):
+    operator: str = ""
+    reason: str = ""
+
+
+@app.post("/api/review/revisions/{revision_id}/validate")
+def review_validate(revision_id: str, body: OperatorBody):
+    try:
+        revision = review.submit_for_validation(revision_id, operator=body.operator)
+    except review.ReviewError as exc:
+        return _review_error(exc)
+    return {"code": 0, "data": review.revision_view(revision["revision_id"])}
+
+
+@app.post("/api/review/revisions/{revision_id}/approve")
+def review_approve(revision_id: str, body: OperatorBody):
+    try:
+        result = review.approve(revision_id, operator=body.operator, reason=body.reason)
+    except review.ReviewError as exc:
+        return _review_error(exc)
+    return {
+        "code": 0,
+        "data": {**review.revision_view(revision_id), "superseded": result["superseded"]},
+    }
+
+
+@app.post("/api/review/revisions/{revision_id}/request-changes")
+def review_request_changes(revision_id: str, body: OperatorBody):
+    try:
+        review.request_changes(revision_id, operator=body.operator, reason=body.reason)
+    except review.ReviewError as exc:
+        return _review_error(exc)
+    return {"code": 0, "data": review.revision_view(revision_id)}
+
+
+@app.post("/api/review/revisions/{revision_id}/rollback")
+def review_rollback(revision_id: str, body: OperatorBody):
+    """Restore this revision's exact content as a new, re-validated revision."""
+    try:
+        result = review.rollback_to(revision_id, operator=body.operator, reason=body.reason)
+    except review.ReviewError as exc:
+        return _review_error(exc)
+    return {
+        "code": 0,
+        "data": {
+            **review.revision_view(result["revision"]["revision_id"]),
+            "rolled_back": result["rolled_back"],
+        },
+    }
+
+
+class AcknowledgeBody(BaseModel):
+    warning_ids: list[str] = Field(default_factory=list)
+    operator: str = ""
+    reason: str = ""
+
+
+@app.post("/api/review/revisions/{revision_id}/acknowledge")
+def review_acknowledge(revision_id: str, body: AcknowledgeBody):
+    try:
+        review.acknowledge_warnings(
+            revision_id, body.warning_ids, operator=body.operator, reason=body.reason
+        )
+    except review.ReviewError as exc:
+        return _review_error(exc)
+    return {"code": 0, "data": review.revision_view(revision_id)}
+
+
+@app.get("/api/review/diff")
+def review_diff(base: str = Query(...), target: str = Query(...)):
+    try:
+        return {"code": 0, "data": review.diff_revisions(base, target)}
+    except review.ReviewError as exc:
+        return _review_error(exc)
 
 
 # --------------------------------------------------------------------------- #

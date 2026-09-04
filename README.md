@@ -62,6 +62,44 @@
 
 演示数据见 `demo/evidence/`（全部虚构，不得描述为官方证书或官方政策）。
 
+## 可编辑的上新审核与审批（Phase 1A）
+
+生成结果是**提案**，不是答案。每份平台文案都会成为一条可审核的修订，走同一条生命周期：
+
+```
+draft → in_review → needs_changes → validated → approved → superseded / rolled_back
+```
+
+在检查器的「审核」标签页里编辑标题、卖点、描述与关键词，并按字段查看差异
+（未变 / 新增 / 删除 / 修改）。三条规则由后端强制，前端没有绕过路径：
+
+- **不静默覆盖。** `draft` 是操作者的工作副本，可原地修改；一旦有人对它做过动作
+  （提交校验、批准、被取代），保存修改会派生**新的候选修订**，已批准的版本原样保留。
+- **确定性不会凭空出现。** 修改内容会作废按旧文案算出的校验结论；批准时会**重新运行**
+  确定性校验（`checker.apply_checks`，与生成时同一套规则），只要还有阻断项就直接拒绝。
+- **历史只增不减。** 回滚不是删除，而是以**新修订**还原选定版本的内容；被回滚掉的版本
+  标记为 `rolled_back` 并继续可读。同一个 SKU + 平台同时只有一条 `approved` 修订，
+  更早的转为 `superseded`。
+
+警告可以豁免，但必须留下**复核人、理由、时间、修订号与具体警告 ID**；
+本次校验没有报过的警告无法被「确认」，阻断项不能当作警告放行。
+审批记录会写下审批人、决定、理由、所依据的校验编号与政策快照 ID。
+
+| 接口 | 说明 |
+|---|---|
+| `POST /api/review/revisions` | 登记生成结果为修订 1（同内容幂等，刷新不会伪造历史） |
+| `GET /api/review/revisions` · `GET /api/review/revisions/{id}` | 修订列表 / 单条修订的完整视图 |
+| `POST /api/review/revisions/{id}/draft` | 保存草稿（必要时派生新候选修订） |
+| `POST /api/review/revisions/{id}/validate` | 提交确定性校验 |
+| `POST /api/review/revisions/{id}/approve` · `/request-changes` | 批准 / 退回修改 |
+| `POST /api/review/revisions/{id}/rollback` | 以新修订还原选定版本 |
+| `POST /api/review/revisions/{id}/acknowledge` | 记录警告豁免 |
+| `GET /api/review/diff?base=&target=` | 任意两条修订的字段级差异 |
+
+修订账本与证据账本同作用域（按浏览器工作区 + 商品隔离），落盘在
+`api/evidence_store/.../reviews.json`，原子替换写入，不入库。
+**批准只代表内部复核通过**：本工具不做平台发布，也不代表任何平台的审核结论。
+
 ## 自愈式 Listing CI/CD
 
 当 SKU 事实（品名 / 卖点）或平台政策变化时：

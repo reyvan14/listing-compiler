@@ -10,11 +10,14 @@ import {
 import {
   blockingChecks,
   checkSummaryText,
+  findSkuShape,
   STAMP,
   type ListingResultNode,
+  type SkuListingNode,
 } from '@/pipeline/nodes/types/skuStation'
 import { ViewOriginalButton, useImageLightbox } from '@/components/useImageLightbox'
 import { EvidenceTab, EvidenceVerdictSummary } from './EvidenceTab'
+import { ReviewTab } from './review/ReviewTab'
 import { useEvidenceGate } from './useEvidenceGate'
 import styles from './listingInspector.module.scss'
 
@@ -26,10 +29,11 @@ import styles from './listingInspector.module.scss'
 // the canvas's own pan/zoom. Opening this reads the shapes but never writes to
 // them, so no node moves, no connection re-binds and the camera is untouched.
 
-type Tab = 'content' | 'compliance' | 'evidence' | 'policy'
+type Tab = 'content' | 'review' | 'compliance' | 'evidence' | 'policy'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'content', label: '内容' },
+  { id: 'review', label: '审核' },
   { id: 'compliance', label: '合规' },
   { id: 'evidence', label: '证据' },
   { id: 'policy', label: '政策与历史' },
@@ -91,6 +95,32 @@ export function ListingInspector({ editor }: { editor: Editor }) {
   // Evidence verdicts for the open card. Fetched once and shared by the
   // Compliance and Evidence tabs so switching between them costs nothing.
   const { gate, reload: reloadGate, productId } = useEvidenceGate(open ? node : null, editor)
+
+  // The SKU source of truth, read off the canvas.
+  //
+  // The review workflow needs the same product name, selling points and asset
+  // mode that generation used: the deterministic checker derives fact
+  // references and claim checks from them, so grading a revision with anything
+  // else would produce a verdict for a listing nobody wrote.
+  const sku = useValue(
+    'inspector sku source',
+    () => {
+      const shape = findSkuShape(editor)
+      const node = shape?.props.node
+      if (!shape || !node || node.type !== 'sku_listing') {
+        return { skuId: 'default-sku', productName: '', points: '', assetMode: 'compliant' }
+      }
+      const source = node as SkuListingNode
+      const name = source.productName.trim()
+      return {
+        skuId: name || shape.id,
+        productName: name,
+        points: source.points,
+        assetMode: source.assetMode,
+      }
+    },
+    [editor],
+  )
 
   const close = useCallback(() => closeListingInspector(editor), [editor])
 
@@ -217,6 +247,7 @@ export function ListingInspector({ editor }: { editor: Editor }) {
 
         <div className={styles.content} data-testid="inspector-content" data-tab={tab}>
           {tab === 'content' && <ContentTab node={node} />}
+          {tab === 'review' && <ReviewTab node={node} sku={sku} productId={productId} />}
           {tab === 'compliance' && <ComplianceTab node={node} gate={gate} />}
           {tab === 'evidence' && (
             <EvidenceTab node={node} gate={gate} productId={productId} onLedgerChange={reloadGate} />
