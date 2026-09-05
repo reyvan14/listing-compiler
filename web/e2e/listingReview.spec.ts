@@ -312,6 +312,7 @@ test('any two stored revisions can be compared field by field', async ({ page },
   await page.getByTestId('review-operator').fill('lottie');
   await page.getByTestId('review-reason').fill('v1');
   await page.getByTestId('review-approve').click();
+  await expect(page.getByTestId('review-state')).toHaveText('已批准');
   const first = (await page.getByTestId('review-revision-id').textContent())!;
 
   const title = page.getByTestId('review-title-input');

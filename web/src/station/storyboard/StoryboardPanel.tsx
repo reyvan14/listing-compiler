@@ -83,12 +83,20 @@ function StoryboardWorkflow({
   const [assets, setAssets] = useState<ImageAsset[]>([]);
   const [draft, setDraft] = useState<Shot[]>([]);
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [confirming, setConfirming] = useState(false);
   const mounted = useRef(true);
   /** Aborts every in-flight provider call when the run is cancelled. */
   const runAbort = useRef<AbortController | null>(null);
+  /**
+   * Serialises draft writes while discarding queued snapshots that have already
+   * been superseded by a later keystroke. Inputs stay editable while a save is
+   * in flight, but an older response can never replace a newer draft.
+   */
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const saveGeneration = useRef(0);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   // The product scope the evidence and media ledgers are keyed by.
@@ -187,13 +195,33 @@ function StoryboardWorkflow({
   const persist = (shots: Shot[]) => {
     setDraft(shots);
     if (!board) return;
-    void run(
-      () =>
-        saveShots(board.storyboard_id, shots, productId).then(res => {
-          if (mounted.current) setValidation(res.validation);
-        }),
-      '已保存分镜。',
-    );
+    const generation = ++saveGeneration.current;
+    setSaving(true);
+    setError('');
+    setNotice('');
+
+    const queued = saveQueue.current
+      .catch(() => undefined)
+      .then(async () => {
+        // A newer edit arrived before this request started. Only the newest
+        // queued snapshot needs to reach the server.
+        if (generation !== saveGeneration.current) return;
+        const res = await saveShots(board.storyboard_id, shots, productId);
+        if (generation === saveGeneration.current && mounted.current) {
+          setBoard(res.storyboard);
+          setValidation(res.validation);
+          setNotice('已保存分镜。');
+        }
+      })
+      .catch(err => {
+        if (generation === saveGeneration.current && mounted.current) {
+          setError(storyboardErrorMessage(err));
+        }
+      })
+      .finally(() => {
+        if (generation === saveGeneration.current && mounted.current) setSaving(false);
+      });
+    saveQueue.current = queued;
   };
 
   const editShot = (shotId: string, patch: Partial<Shot>) => {
@@ -204,6 +232,9 @@ function StoryboardWorkflow({
     if (!board) return;
     setError('');
     try {
+      // A plan must be calculated from the latest text the operator sees, not
+      // the last request that happened to finish.
+      await saveQueue.current;
       const next = await planGeneration(board.storyboard_id, [], productId);
       if (mounted.current) {
         setPlan(next);
@@ -234,6 +265,9 @@ function StoryboardWorkflow({
 
       const controller = new AbortController();
       runAbort.current = controller;
+      adopt(started.storyboard);
+      const startedProgress = await fetchProgress(board.storyboard_id, productId);
+      if (mounted.current) setProgress(startedProgress);
       const targets = started.storyboard.shots.filter(s =>
         started.plan.shots_to_generate.includes(s.shot_id),
       );
@@ -334,6 +368,7 @@ function StoryboardWorkflow({
                 <span className={styles.progress} data-testid="storyboard-progress">
                   {progressLabel(progress)}
                 </span>
+                {saving && <span className={styles.muted}>正在保存…</span>}
               </div>
               <p className={styles.muted} data-testid="storyboard-validation">
                 {validationSummary(validation)}
@@ -538,17 +573,18 @@ function StoryboardWorkflow({
                 {progress?.running && (
                   <button
                     type="button"
-                    disabled={busy}
                     data-testid="storyboard-cancel"
                     onClick={() => {
                       // Stop the client polling as well as the server run, so a
                       // reply already in flight cannot land after the cancel.
                       runAbort.current?.abort();
                       runAbort.current = null;
-                      void run(
-                        () => cancelRun(board.storyboard_id, productId),
-                        '已取消本次生成。',
-                      );
+                      setError('');
+                      setNotice('正在取消…');
+                      void cancelRun(board.storyboard_id, productId)
+                        .then(refresh)
+                        .then(() => mounted.current && setNotice('已取消本次生成。'))
+                        .catch(err => mounted.current && setError(storyboardErrorMessage(err)));
                     }}
                   >
                     取消生成

@@ -195,8 +195,10 @@ type FrameOpts = {
  * `(p + camera) * z`, so `camera = screenTarget / z - p`.
  */
 function frameToBounds(editor: Editor, bounds: { x: number; y: number; w: number; h: number }, opts: FrameOpts) {
-  // Default inset clears the left icon rail (~60px) as well as giving breathing room.
-  const inset = opts.inset ?? 76
+  // Default inset clears both the left icon rail and tldraw's floating bottom
+  // action toolbar. With the old 76px margin, filling the SKU demo grew the
+  // textarea just enough for its Generate button to sit behind Undo at 1280×720.
+  const inset = opts.inset ?? 96
   const vsb = editor.getViewportScreenBounds()
   const availW = Math.max(220, vsb.w - opts.gutter - inset * 2)
   const availH = Math.max(220, vsb.h - inset * 2)

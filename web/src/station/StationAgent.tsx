@@ -434,16 +434,6 @@ export function StationAgent({
     void send(text)
   }
 
-  if (collapsed) {
-    return (
-      <div className={styles.agentCollapsed}>
-        <button type="button" title="展开 Agent" aria-label="展开 Agent 面板" onClick={onToggle}>
-          Agent ▸
-        </button>
-      </div>
-    )
-  }
-
   const lastIsError = items.at(-1)?.kind === 'text' && (items.at(-1) as { error?: boolean }).error
   /**
    * Run one typed domain action from an approved plan.
@@ -561,6 +551,19 @@ export function StationAgent({
       latestUndoableActivity = i
       break
     }
+  }
+
+  // Keep every hook above this conditional return. Collapsing the panel used
+  // to skip the action callbacks below, which changed the hook order and made
+  // React unmount the station after the first toggle.
+  if (collapsed) {
+    return (
+      <div className={styles.agentCollapsed}>
+        <button type="button" title="展开 Agent" aria-label="展开 Agent 面板" onClick={onToggle}>
+          Agent ▸
+        </button>
+      </div>
+    )
   }
 
   return (

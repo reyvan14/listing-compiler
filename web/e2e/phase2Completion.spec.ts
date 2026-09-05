@@ -149,10 +149,13 @@ test('A. a storyboard is reachable from a video node and reports only shots it m
   expect(calls).toHaveLength(4);
 
   await page.getByTestId('storyboard-load-package').click();
-  // Without ffmpeg there is no finished film, and the panel says so instead of
-  // presenting four clips as one.
+  // No composition step ran, so there is no finished film. The note may say
+  // composition is unavailable or that the locally detected FFmpeg can be used;
+  // neither state may present four clips as one finished video.
   await expect(page.getByTestId('storyboard-final-video')).toHaveCount(0);
-  await expect(page.getByTestId('storyboard-not-composed')).toContainText('不会声称已合成成片');
+  await expect(page.getByTestId('storyboard-not-composed')).toContainText(
+    /不会声称已合成成片|可尝试合成最终成片/,
+  );
 
   await page.screenshot({ path: `${SHOTS}/${tag(testInfo)}-p2-A-storyboard.png` });
 });
@@ -171,6 +174,9 @@ test('B. an Agent plan runs a confirmed domain action and reports its real resul
   await ask(page, '校验文案');
   // The planner declines rather than invent a revision id it cannot know.
   await expect(agent(page)).toContainText('校验', { timeout: 20_000 });
+  // The user message itself also contains 校验; wait for the streamed turn to
+  // finish before submitting the next request.
+  await expect(agent(page).getByRole('button', { name: '发送' })).toBeVisible({ timeout: 20_000 });
 
   await ask(page, '生成发布护照');
   const action = page.getByTestId('agent-action').first();

@@ -149,6 +149,24 @@ test('a shot can be edited, reordered, added and removed, and it persists', asyn
   ).toHaveValue('水杯从桌面展开');
 });
 
+test('a shot instruction accepts normal sequential typing without disabling the field', async ({ page }) => {
+  await waitForStation(page);
+  await openStoryboard(page);
+
+  const input = page.getByTestId('storyboard-shot').first().getByTestId('shot-instruction');
+  await input.fill('');
+  await input.pressSequentially('水杯缓慢展开', { delay: 40 });
+  await expect(input).toHaveValue('水杯缓慢展开');
+  await expect(page.getByTestId('storyboard-notice')).toContainText('已保存分镜');
+
+  await page.getByRole('button', { name: '关闭' }).first().click();
+  await page.getByTestId('open-storyboard').first().click();
+  await expect(page.getByTestId('storyboard-panel')).toBeVisible();
+  await expect(
+    page.getByTestId('storyboard-shot').first().getByTestId('shot-instruction'),
+  ).toHaveValue('水杯缓慢展开');
+});
+
 test('an invalid duration blocks generation and names the problem', async ({ page }) => {
   await waitForStation(page);
   await openStoryboard(page);
@@ -187,6 +205,34 @@ test('generating four shots states the cost and needs an explicit confirmation',
   expect(provider.calls).toHaveLength(4);
   // progress is a count, never a percentage
   await expect(page.getByTestId('storyboard-progress')).not.toContainText('%');
+});
+
+test('an in-flight first shot can be cancelled from the panel', async ({ page }) => {
+  await waitForStation(page);
+  await openStoryboard(page);
+
+  await page.route('**/api/media/video', async route => {
+    await page.waitForTimeout(5_000);
+    await route
+      .fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, data: { url: 'https://mock.invalid/late.mp4' } }),
+      })
+      .catch(() => undefined);
+  });
+
+  await page.getByTestId('storyboard-preview-plan').click();
+  await page.getByTestId('storyboard-confirm-yes').click();
+
+  const cancel = page.getByTestId('storyboard-cancel');
+  await expect(cancel).toBeVisible();
+  await expect(cancel).toBeEnabled();
+  await cancel.click();
+  await expect(page.getByTestId('storyboard-notice')).toContainText('已取消本次生成', {
+    timeout: 10_000,
+  });
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
 
 test('retrying one failed shot does not regenerate the successful ones', async ({
@@ -259,7 +305,7 @@ test('the package never claims a final video when nothing was composed', async (
   await page.getByTestId('storyboard-load-package').click();
   await expect(page.getByTestId('storyboard-not-composed')).toBeVisible();
   await expect(page.getByTestId('storyboard-not-composed')).toContainText(
-    '不会声称已合成成片',
+    /不会声称已合成成片|可尝试合成最终成片/,
   );
   await expect(page.getByTestId('storyboard-final-video')).toHaveCount(0);
   await expect(page.getByTestId('storyboard-package-summary')).toContainText('未合成成片');
