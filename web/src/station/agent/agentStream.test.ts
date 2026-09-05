@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { isApiError } from '../apiClient';
 import { streamAgent } from './agentApi';
 import type { AgentCanvasContext } from './types';
 
@@ -127,12 +128,19 @@ describe('streamAgent', () => {
   });
 
   it('does not mark transport or server failures as safe automatic fallbacks', async () => {
+    // fetch cannot distinguish "connection refused" from "reset after the
+    // request was uploaded", so neither is auto-retried: a second call could
+    // duplicate a charged request. The user gets an explicit retry instead.
     vi.stubGlobal('fetch', async () => {
       throw new TypeError('connection reset after request upload');
     });
-    await expect(
-      streamAgent([], CONTEXT, {}, new AbortController().signal),
-    ).rejects.toThrow(/手动重试/);
+    const transport = await streamAgent([], CONTEXT, {}, new AbortController().signal).catch(
+      e => e,
+    );
+    expect(isApiError(transport)).toBe(true);
+    expect(transport.category).toBe('network');
+    // the safe Chinese message survives, rather than degrading to "unknown error"
+    expect(transport.message).toBe('无法连接后端服务，请检查网络后重试。');
 
     vi.stubGlobal('fetch', async () =>
       sseResponse([], { status: 503, contentType: 'application/json' }),
@@ -237,5 +245,20 @@ describe('streamAgent', () => {
     await expect(
       streamAgent([], poisoned, {}, new AbortController().signal),
     ).rejects.toThrow(/图片数据/);
+  });
+});
+
+describe('transport failure before the stream opens', () => {
+  it('still propagates a caller abort rather than reporting a network failure', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new DOMException('aborted', 'AbortError')),
+    );
+
+    await expect(
+      streamAgent([{ role: 'user', content: 'hi' }], CONTEXT, {}, controller.signal),
+    ).rejects.toBeTruthy();
   });
 });

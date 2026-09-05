@@ -75,6 +75,14 @@ _ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
 #: Passport fields that change on every rebuild and say nothing about content.
 _VOLATILE = ("built_at", "export", "readiness", "readiness_reasons", "passport_id")
 
+#: Keys that record *when a computation ran*, at any depth. A re-validation
+#: stamp is not content: if these reached the digest, rebuilding an unchanged
+#: passport a second later would mint a new one and supersede the exported
+#: version of the very same listing.
+_VOLATILE_KEYS = frozenset(
+    {"revalidated_at", "ran_at", "built_at", "inspected_at", "stored_at", "exported_at"}
+)
+
 #: Fields stripped from the copy that goes into the package. ``export``
 #: describes the package itself, and ``readiness`` flips to "exported" the
 #: moment one exists -- packaging either would make the archive depend on
@@ -498,15 +506,27 @@ def _shell(sku_id: str, platform: str, project_id: str) -> dict[str, Any]:
     }
 
 
+def _without_timestamps(value: Any) -> Any:
+    """Drop computation timestamps at any depth, for digest purposes only."""
+    if isinstance(value, dict):
+        return {
+            k: _without_timestamps(v) for k, v in value.items() if k not in _VOLATILE_KEYS
+        }
+    if isinstance(value, list):
+        return [_without_timestamps(v) for v in value]
+    return value
+
+
 def content_digest(passport: dict[str, Any]) -> str:
     """Hash of the business content, with rebuild-volatile fields excluded.
 
     Two builds a minute apart over unchanged records produce the same digest.
     That is what lets the UI say "nothing has changed" truthfully instead of
-    showing a new identity every time someone opens the page.
+    showing a new identity every time someone opens the page -- and it is what
+    stops an export from being superseded by the next rebuild of itself.
     """
     stable = {k: v for k, v in passport.items() if k not in _VOLATILE}
-    return _sha256(_canonical(stable))
+    return _sha256(_canonical(_without_timestamps(stable)))
 
 
 def _store(passport: dict[str, Any]) -> dict[str, Any]:

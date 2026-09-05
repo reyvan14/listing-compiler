@@ -1,4 +1,4 @@
-import { postJson } from '../apiClient';
+import { ApiError, postJson } from '../apiClient';
 import {
   AGENT_NODE_TYPES,
   AGENT_OPERATION_TYPES,
@@ -187,9 +187,15 @@ export async function streamAgent(
     });
   } catch (err) {
     if (signal.aborted) throw err;
-    // A transport failure does not prove the server never started the model.
-    // Retrying automatically could duplicate a charged request.
-    throw new Error('无法连接 Agent 流式服务，请手动重试。');
+    // A transport failure does not prove the server never started the model:
+    // fetch cannot tell "connection refused" from "reset after the request was
+    // uploaded". So this still does NOT fall back automatically — a second call
+    // could duplicate a charged request — and the user gets an explicit retry.
+    //
+    // It is an ApiError rather than a bare Error so the category and the safe
+    // Chinese message survive. Throwing `new Error(...)` here meant the panel
+    // rendered "发生未知错误，请稍后重试。" and lost both.
+    throw new ApiError('network');
   }
 
   const contentType = response.headers.get('content-type') ?? '';

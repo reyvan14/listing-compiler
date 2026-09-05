@@ -436,3 +436,39 @@ def test_the_manifest_endpoint_leaves_the_passport_unexported():
     after = client.get(f"/api/passport/{built['passport_id']}").json()["data"]["passport"]
     assert after["export"] is None
     assert after["readiness"] != "exported"
+
+
+def test_a_rebuild_a_minute_later_is_the_same_passport(monkeypatch):
+    """A re-validation stamp is not content.
+
+    This is the failure that made an export supersede itself: the passport was
+    rebuilt whenever the panel refreshed, and the second build a second later
+    produced a different digest purely because ``revalidated_at`` had moved.
+    """
+    approved_revision(title="Collapsible Travel Cup with Leakproof Lid and Carry Loop")
+    first = passport.build(SKU, "amazon")
+
+    clock = ["2026-09-05T12:00:00+00:00"]
+    monkeypatch.setattr(passport, "_now", lambda: clock[0])
+    monkeypatch.setattr(review, "_now", lambda: clock[0])
+    clock[0] = "2026-09-05T12:01:00+00:00"
+
+    second = passport.build(SKU, "amazon")
+
+    assert second["content_digest"] == first["content_digest"]
+    assert second["passport_id"] == first["passport_id"]
+    assert passport.get(first["passport_id"])["readiness"] != passport.SUPERSEDED
+    assert len(passport.list_passports(sku_id=SKU, platform="amazon")) == 1
+
+
+def test_an_export_survives_the_rebuild_that_follows_it():
+    approved_revision(title="Collapsible Travel Cup with Leakproof Lid and Carry Loop")
+    record = passport.build(SKU, "amazon")
+    exported = passport.build_package(record["passport_id"])["export"]
+
+    # the UI rebuilds right after exporting, to show the fresh state
+    rebuilt = passport.build(SKU, "amazon")
+
+    assert rebuilt["passport_id"] == record["passport_id"]
+    assert rebuilt["readiness"] == passport.EXPORTED
+    assert rebuilt["export"]["digest"] == exported["digest"]
