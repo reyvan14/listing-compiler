@@ -498,3 +498,43 @@ def test_create_experiment_runs_and_records_the_hypothesis():
     assert run["state"] == actions.OK
     assert run["result"]["state"] == "draft"
     assert "容量" in run["result"]["hypothesis"]
+
+
+# --------------------------------------------------------------------------- #
+# sku_id is a product name, not an ascii id                                    #
+# --------------------------------------------------------------------------- #
+
+
+def test_a_chinese_product_name_is_a_valid_sku_id():
+    """Regression: the id pattern rejected every real SKU, so plans were dropped."""
+    validated = actions.validate_action(
+        {
+            "action": "build_release_passport",
+            "params": {"sku_id": "折叠硅胶水杯 350ml", "platform": "amazon"},
+        }
+    )
+    assert validated["params"]["sku_id"] == "折叠硅胶水杯 350ml"
+
+
+@pytest.mark.parametrize(
+    "value", ["../../etc/passwd", "a/b", "http://evil", "name\nwith newline", "<script>", ""]
+)
+def test_a_name_parameter_still_refuses_path_and_protocol_shapes(value):
+    with pytest.raises(actions.ActionError):
+        actions.validate_action(
+            {
+                "action": "build_release_passport",
+                "params": {"sku_id": value, "platform": "amazon"},
+            }
+        )
+
+
+def test_platform_stays_on_the_strict_id_rule():
+    with pytest.raises(actions.ActionError) as exc:
+        actions.validate_action(
+            {
+                "action": "build_release_passport",
+                "params": {"sku_id": "折叠杯", "platform": "amazon; rm -rf /"},
+            }
+        )
+    assert exc.value.code == "unsafe_param"

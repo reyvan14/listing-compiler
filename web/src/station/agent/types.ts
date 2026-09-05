@@ -100,6 +100,24 @@ export type PlanRationale = {
   publishNote: string;
 };
 
+/**
+ * One typed domain action inside a plan.
+ *
+ * The model supplies only `action` and `params`; every other field is the
+ * backend telling the UI what that action means, so a card cannot describe an
+ * action as cheaper or safer than the allow-list says it is.
+ */
+export type AgentPlanAction = {
+  action: string;
+  params: Record<string, unknown>;
+  label: string;
+  summary: string;
+  readOnly: boolean;
+  requiresConfirmation: boolean;
+  costsMoney: boolean;
+  confirmPrompt: string;
+};
+
 export type AgentPlan = {
   id: string;
   title: string;
@@ -108,6 +126,7 @@ export type AgentPlan = {
   warnings: string[];
   requiresRunConfirmation: boolean;
   operations: AgentOperation[];
+  actions: AgentPlanAction[];
   rationale?: PlanRationale | null;
 };
 

@@ -131,7 +131,11 @@ export function validatePlan(editor: Editor, plan: AgentPlan): ValidationResult 
   const errors: string[] = [];
   const ops = Array.isArray(plan?.operations) ? plan.operations : [];
 
-  if (ops.length === 0) errors.push('计划里没有任何操作');
+  // A plan may carry canvas operations, typed domain actions, or both. Only a
+  // plan that would do nothing at all is an error — an action-only plan has
+  // nothing for this validator to check, which is not the same as being empty.
+  const actions = Array.isArray(plan?.actions) ? plan.actions : [];
+  if (ops.length === 0 && actions.length === 0) errors.push('计划里没有任何操作');
   if (ops.length > MAX_OPERATIONS) errors.push(`操作数量超过上限（${MAX_OPERATIONS}）`);
 
   const tempIds = new Set<string>();

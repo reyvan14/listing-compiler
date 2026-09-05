@@ -198,3 +198,36 @@ describe('runAction', () => {
     expect(actionErrorMessage(err)).toContain('永远不被允许');
   });
 });
+
+describe('sku_id is a product name, not an ascii id', () => {
+  // Regression: the id pattern rejected every real SKU, so the whole plan was
+  // silently dropped and no action card ever rendered.
+  it('accepts a Chinese product name with spaces', () => {
+    const result = validateAction({
+      action: 'build_release_passport',
+      params: { sku_id: '折叠硅胶水杯 350ml', platform: 'amazon' },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.params.sku_id).toBe('折叠硅胶水杯 350ml');
+  });
+
+  it.each(['../../etc/passwd', 'a/b', 'http://evil', 'name\nwith newline', '<script>', ''])(
+    'still refuses %j',
+    value => {
+      const result = validateAction({
+        action: 'build_release_passport',
+        params: { sku_id: value, platform: 'amazon' },
+      });
+      expect(result.ok).toBe(false);
+    },
+  );
+
+  it('keeps platform on the strict id rule', () => {
+    const result = validateAction({
+      action: 'build_release_passport',
+      params: { sku_id: '折叠杯', platform: 'amazon; rm -rf /' },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.problem.code).toBe('unsafe_param');
+  });
+});

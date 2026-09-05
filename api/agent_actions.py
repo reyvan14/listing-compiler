@@ -227,6 +227,15 @@ _ID_PARAM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$")
 _FREE_TEXT_PARAMS = frozenset({"hypothesis"})
 _MAX_TEXT_CHARS = 500
 
+#: Parameters that are human-chosen names rather than generated ids. A SKU is
+#: identified by its product name in this product, so it is routinely Chinese
+#: and contains spaces — the id pattern would reject every real one. These are
+#: bounded and refused if they contain anything that could act as a path
+#: separator, a control character, or protocol syntax.
+_NAME_PARAMS = frozenset({"sku_id"})
+_MAX_NAME_CHARS = 120
+_UNSAFE_IN_NAME = ("/", "\\", "..", "\x00", "\n", "\r", "\t", "://", "<", ">")
+
 
 def validate_action(raw: Any) -> dict[str, Any]:
     """Type-check one requested action. Raises ``ActionError`` on anything odd."""
@@ -259,6 +268,19 @@ def validate_action(raw: Any) -> dict[str, Any]:
         value = supplied[key]
         if expected is str:
             text = str(value).strip()
+            if key in _NAME_PARAMS:
+                if not text:
+                    raise ActionError("missing_param", f"{name} 缺少必需参数：{key}")
+                if len(text) > _MAX_NAME_CHARS:
+                    raise ActionError("param_too_long", f"{name}.{key} 超出长度上限。")
+                if any(bad in text for bad in _UNSAFE_IN_NAME):
+                    raise ActionError(
+                        "unsafe_param",
+                        f"{name}.{key} 含有不允许的字符，已拒绝。",
+                        status=400,
+                    )
+                cleaned[key] = text
+                continue
             if key in _FREE_TEXT_PARAMS:
                 if len(text) > _MAX_TEXT_CHARS:
                     raise ActionError("param_too_long", f"{name}.{key} 超出长度上限。")

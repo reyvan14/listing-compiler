@@ -2,6 +2,8 @@ import { useState } from 'react';
 import styles from './agentPlan.module.scss';
 import { PlanRationaleSection } from './PlanRationaleSection';
 import { planCounts, planRows } from './planSummary';
+import { AgentActionCard } from './AgentActionCard';
+import type { ActionRun } from './domainActions';
 import type { AgentPlan, PlanState } from './types';
 
 // The approval surface. Everything the plan would do is spelled out here
@@ -41,6 +43,12 @@ export type AgentPlanCardProps = {
   onApply: () => void;
   onApplyAndRun: () => void;
   onCancel: () => void;
+  /** Outcome of each domain action, keyed by action index. */
+  actionRuns?: Record<number, ActionRun>;
+  /** Execute one domain action. `confirmed` carries the second confirmation. */
+  onRunAction?: (index: number, confirmed: boolean) => void;
+  /** Approve a plan that has no canvas operations to apply. */
+  onApprove?: () => void;
 };
 
 export function AgentPlanCard({
@@ -53,6 +61,9 @@ export function AgentPlanCard({
   onApply,
   onApplyAndRun,
   onCancel,
+  actionRuns = {},
+  onRunAction,
+  onApprove,
 }: AgentPlanCardProps) {
   const [confirmingRun, setConfirmingRun] = useState(false);
   const rows = planRows(plan, nodeNames);
@@ -60,6 +71,9 @@ export function AgentPlanCard({
   const busy = state === 'applying' || state === 'running';
   const settled =
     state === 'applied' || state === 'completed' || state === 'cancelled' || state === 'invalid';
+  // Approving the plan and confirming an action are separate decisions.
+  // Nothing runs until the plan itself has been accepted.
+  const planApproved = state === 'applied' || state === 'completed';
 
   return (
     <section className={styles.card} aria-label="Agent 变更计划" data-plan-state={state}>
@@ -133,6 +147,26 @@ export function AgentPlanCard({
       ) : (
         !settled && (
           <div className={styles.actions}>
+            {/* A plan with no canvas operations has nothing to draw. Offering
+                「仅创建节点」 there would be a button that truthfully does
+                nothing, so it gets a plain approval instead. */}
+            {plan.operations.length === 0 ? (
+              <>
+                <button
+                  type="button"
+                  className={styles.primary}
+                  onClick={onApprove}
+                  disabled={busy}
+                  data-testid="plan-approve"
+                >
+                  批准计划
+                </button>
+                <button type="button" onClick={onCancel} disabled={busy}>
+                  取消
+                </button>
+              </>
+            ) : (
+              <>
             {state === 'previewing' ? (
               <button type="button" onClick={onStopPreview} disabled={busy}>
                 结束预览
@@ -158,8 +192,30 @@ export function AgentPlanCard({
             <button type="button" onClick={onCancel} disabled={busy}>
               取消
             </button>
+              </>
+            )}
           </div>
         )
+      )}
+      {plan.actions.length > 0 && (
+        <div className={styles.actionBlock} data-testid="agent-action-list">
+          <div className={styles.actionBlockHead}>
+            域操作（{plan.actions.length}）
+            {!planApproved && <span>批准计划后可执行</span>}
+          </div>
+          <ul className={styles.actionList}>
+            {plan.actions.map((action, index) => (
+              <AgentActionCard
+                key={`${action.action}-${index}`}
+                action={action}
+                run={actionRuns[index] ?? null}
+                busy={busy}
+                planApproved={planApproved}
+                onExecute={confirmed => onRunAction?.(index, confirmed)}
+              />
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   );

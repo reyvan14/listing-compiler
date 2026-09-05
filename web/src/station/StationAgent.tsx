@@ -3,7 +3,9 @@ import { useValue, type Editor } from 'tldraw'
 import { toSafeMessage } from './apiClient'
 import styles from './stationChrome.module.scss'
 import { executionState } from '@/pipeline/execution/executionState'
+import { findSkuShape, type SkuListingNode } from '@/pipeline/nodes/types/skuStation'
 import { AgentPlanCard } from './agent/AgentPlanCard'
+import { actionErrorMessage, runAction, type ActionRun } from './agent/domainActions'
 import { AgentPreviewLayer } from './agent/AgentPreviewLayer'
 import { AgentTrace } from './agent/AgentTrace'
 import { askAgent, streamAgent, type AgentTurn } from './agent/agentApi'
@@ -49,6 +51,8 @@ type PlanRecord = {
   state: PlanState
   errors?: string[]
   applied?: ApplyResult
+  /** Outcome of each domain action in the plan, by index. */
+  actionRuns?: Record<number, ActionRun>
 }
 
 /** The response currently streaming, if any. */
@@ -77,6 +81,23 @@ const QUICK_ACTIONS = [
   '连接选中的两个节点',
 ]
 
+/** One line about what an action actually returned. Never more than the payload. */
+function describeRun(run: ActionRun): string {
+  const result = (run.result ?? {}) as Record<string, unknown>
+  if (run.action === 'validate_listing') {
+    const blockers = (result.blockers as string[] | undefined) ?? []
+    return blockers.length > 0 ? `${blockers.length} 项阻断` : '无阻断项'
+  }
+  if (run.action === 'export_release_package') {
+    return `${result.files} 个文件，已校验；未发布到任何平台`
+  }
+  if (run.action === 'build_migration_candidate' && result.candidate_id) {
+    return `已生成迁移候选 ${result.candidate_id}`
+  }
+  if (result.readiness) return `就绪状态 ${result.readiness}`
+  return '已返回结果'
+}
+
 export function StationAgent({
   editor,
   collapsed,
@@ -94,6 +115,24 @@ export function StationAgent({
   const [previewPlanId, setPreviewPlanId] = useState<string | null>(null)
   const [live, setLive] = useState<LiveTurn | null>(null)
   const [confirmRunAt, setConfirmRunAt] = useState<number | null>(null)
+  /** Guards against a second click while one action request is in flight. */
+  const actionBusy = useRef<Set<string>>(new Set())
+
+  // The scope the evidence, review and media ledgers are keyed by, so a domain
+  // action reads the same records the rest of the product is showing.
+  const productId = useValue(
+    'agent product id',
+    () => {
+      if (!editor) return 'default-product'
+      const sku = findSkuShape(editor)
+      if (!sku) return 'default-product'
+      const node = sku.props.node
+      const name =
+        node.type === 'sku_listing' ? (node as SkuListingNode).productName.trim().toLowerCase() : ''
+      return `${sku.id}|${name}`
+    },
+    [editor],
+  )
 
   const planSeq = useRef(0)
   const turnSeq = useRef(0)
@@ -416,6 +455,93 @@ export function StationAgent({
   }
 
   const lastIsError = items.at(-1)?.kind === 'text' && (items.at(-1) as { error?: boolean }).error
+  /**
+   * Run one typed domain action from an approved plan.
+   *
+   * The idempotency key is derived from the plan id and the action's position,
+   * so it is stable across a re-render, a reconnect, or a user clicking twice:
+   * the backend replays the first outcome instead of doing the work again. The
+   * in-flight guard stops a double click from even reaching the network.
+   */
+  const executeAction = useCallback(
+    async (planId: string, index: number, confirmed: boolean) => {
+      const record = plans[planId]
+      const action = record?.plan.actions[index]
+      if (!action) return
+
+      const key = `${planId}:${index}:${action.action}`
+      if (actionBusy.current.has(key)) return
+      actionBusy.current.add(key)
+
+      const setRun = (run: ActionRun) =>
+        setPlans(prev => {
+          const current = prev[planId]
+          if (!current) return prev
+          return {
+            ...prev,
+            [planId]: { ...current, actionRuns: { ...(current.actionRuns ?? {}), [index]: run } },
+          }
+        })
+
+      try {
+        let run = await runAction(action.action, action.params, key, '', productId)
+        // A consequential action answers with its own token first; the user has
+        // already confirmed in the card, so send it straight back.
+        if (run.state === 'needs_confirmation' && confirmed && run.confirmation_token) {
+          run = await runAction(
+            action.action,
+            action.params,
+            key,
+            run.confirmation_token,
+            productId,
+          )
+        }
+        setRun(run)
+        if (run.state === 'ok') {
+          setItems(prev => [
+            ...prev,
+            {
+              kind: 'text' as const,
+              role: 'assistant' as const,
+              text: `已执行「${action.label}」：${describeRun(run)}`,
+            },
+          ])
+        } else if (run.state !== 'needs_confirmation') {
+          setItems(prev => [
+            ...prev,
+            {
+              kind: 'text' as const,
+              role: 'assistant' as const,
+              text: run.message || '操作未成功。',
+              error: true,
+            },
+          ])
+        }
+      } catch (err) {
+        setRun({
+          action: action.action,
+          params: action.params,
+          state: 'failed',
+          message: actionErrorMessage(err),
+          at: new Date().toISOString(),
+          replayed: false,
+        })
+        setItems(prev => [
+          ...prev,
+          {
+            kind: 'text' as const,
+            role: 'assistant' as const,
+            text: actionErrorMessage(err),
+            error: true,
+          },
+        ])
+      } finally {
+        actionBusy.current.delete(key)
+      }
+    },
+    [plans, productId],
+  )
+
   const previewPlan = previewPlanId ? plans[previewPlanId]?.plan : null
   let latestUndoableActivity = -1
   for (let i = items.length - 1; i >= 0; i -= 1) {
@@ -509,6 +635,11 @@ export function StationAgent({
                     setPreviewPlanId(current => (current === item.planId ? null : current))
                     setPlanState(item.planId, { state: 'cancelled' })
                   }}
+                  onApprove={() => setPlanState(item.planId, { state: 'applied' })}
+                  actionRuns={record.actionRuns}
+                  onRunAction={(index, confirmed) =>
+                    void executeAction(item.planId, index, confirmed)
+                  }
                 />
               )
             }

@@ -24,7 +24,7 @@ export type DomainActionName =
   | 'analyze_feedback'
   | 'create_experiment';
 
-export type ParamKind = 'id' | 'text' | 'idList';
+export type ParamKind = 'id' | 'name' | 'text' | 'idList';
 
 export type ActionSpec = {
   action: DomainActionName;
@@ -77,7 +77,7 @@ export const ACTION_SPECS: Record<DomainActionName, ActionSpec> = {
     action: 'build_release_passport',
     label: '生成发布护照',
     summary: '按当前记录重新计算就绪状态并存储护照。',
-    params: { sku_id: 'id', platform: 'id' },
+    params: { sku_id: 'name', platform: 'id' },
     required: ['sku_id', 'platform'],
     readOnly: false,
     requiresConfirmation: false,
@@ -170,6 +170,15 @@ export const FORBIDDEN_ACTIONS = [
 export const MAX_ACTIONS_PER_PLAN = 8;
 const MAX_ID_CHARS = 120;
 const MAX_TEXT_CHARS = 500;
+const MAX_NAME_CHARS = 120;
+
+/**
+ * A SKU is identified by its product name here, so it is routinely Chinese and
+ * contains spaces. The id pattern would reject every real one. Names are
+ * bounded instead, and refused if they contain anything that could act as a
+ * path separator, a control character, or protocol syntax.
+ */
+const UNSAFE_IN_NAME = ['/', '\\', '..', '\u0000', '\n', '\r', '\t', '://', '<', '>'];
 
 /** Same positive allow-list as the backend: if it is not id-shaped, refuse it. */
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/;
@@ -266,6 +275,28 @@ export function validateAction(raw: unknown): { ok: true; value: ValidatedAction
       continue;
     }
     const text = String(value ?? '').trim();
+    if (kind === 'name') {
+      if (!text) {
+        return {
+          ok: false,
+          problem: { code: 'missing_param', message: `${name} 缺少必需参数：${key}`, action: name, param: key },
+        };
+      }
+      if (text.length > MAX_NAME_CHARS) {
+        return {
+          ok: false,
+          problem: { code: 'param_too_long', message: `${name}.${key} 超出长度上限。`, action: name, param: key },
+        };
+      }
+      if (UNSAFE_IN_NAME.some(bad => text.includes(bad))) {
+        return {
+          ok: false,
+          problem: { code: 'unsafe_param', message: `${name}.${key} 含有不允许的字符，已拒绝。`, action: name, param: key },
+        };
+      }
+      params[key] = text;
+      continue;
+    }
     if (kind === 'text') {
       if (text.length > MAX_TEXT_CHARS) {
         return {

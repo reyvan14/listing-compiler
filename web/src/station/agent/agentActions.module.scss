@@ -1,0 +1,156 @@
+/* Agent 域操作卡片。沿用 Agent 面板的深色系。 */
+
+.action {
+  padding: 8px 10px;
+  border: 1px solid #3a3327;
+  border-left-width: 3px;
+  border-radius: 7px;
+  list-style: none;
+
+  &[data-state='ok'] {
+    border-left-color: #3f6b56;
+  }
+
+  &[data-state='rejected'],
+  &[data-state='failed'] {
+    border-left-color: #ff7649;
+  }
+
+  &[data-state='unavailable'] {
+    border-left-color: #6a6357;
+  }
+
+  &[data-state='proposed'] {
+    border-left-color: #6b5a35;
+  }
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+
+  b {
+    color: #f4f1ea;
+  }
+}
+
+.tag {
+  padding: 1px 7px;
+  border: 1px solid #4a4335;
+  border-radius: 999px;
+  font-size: 10px;
+  color: #cfc9bd;
+
+  &[data-tone='ok'] {
+    color: #7ee0b0;
+    border-color: #3f6b56;
+  }
+
+  &[data-tone='warn'] {
+    color: #ffce7a;
+    border-color: #6b5a35;
+  }
+
+  &[data-tone='danger'] {
+    color: #ff9c7a;
+    border-color: #7a4433;
+  }
+}
+
+.summary {
+  margin: 5px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #a8a49b;
+}
+
+.detail {
+  margin: 6px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  div {
+    display: flex;
+    gap: 6px;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  dt {
+    flex: 0 0 48px;
+    color: #8d887c;
+  }
+
+  dd {
+    margin: 0;
+    color: #cfc9bd;
+    overflow-wrap: anywhere;
+  }
+}
+
+.ok {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #7ee0b0;
+}
+
+.bad {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #ff9c7a;
+}
+
+.actions {
+  margin-top: 8px;
+
+  button {
+    padding: 3px 10px;
+    border: 1px solid #4a4335;
+    border-radius: 6px;
+    background: transparent;
+    font: inherit;
+    font-size: 11px;
+    color: #cfc9bd;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.primary {
+  border-color: #6b5a35 !important;
+  color: #ffce7a !important;
+}
+
+.confirm {
+  padding: 8px 10px;
+  border: 1px solid #6b5a35;
+  border-radius: 7px;
+  background: rgba(107, 90, 53, 0.14);
+
+  b {
+    display: block;
+    font-size: 11px;
+    line-height: 1.6;
+    color: #ffce7a;
+  }
+}
+
+.confirmBtns {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}

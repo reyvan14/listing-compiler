@@ -292,3 +292,31 @@
 .whyList li + li {
   margin-top: 2px;
 }
+
+/* ---- 域操作 ------------------------------------------------------------ */
+.actionBlock {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #3a3327;
+}
+
+.actionBlockHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: #a8a49b;
+
+  span {
+    color: #8d887c;
+  }
+}
+
+.actionList {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

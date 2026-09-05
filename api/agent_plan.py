@@ -216,11 +216,41 @@ def validate_plan(raw: Any) -> dict[str, Any]:
     """A whole plan, or raise. Never partially accepts."""
     if not isinstance(raw, dict):
         raise PlanError("计划必须是对象")
-    ops_raw = raw.get("operations")
-    if not isinstance(ops_raw, list) or not ops_raw:
-        raise PlanError("计划里没有任何操作")
+    ops_raw = raw.get("operations") or []
+    if not isinstance(ops_raw, list):
+        raise PlanError("operations 必须是数组")
     if len(ops_raw) > MAX_OPERATIONS:
         raise PlanError(f"操作数量超过上限（{MAX_OPERATIONS}）")
+
+    # Typed domain actions travel in the same plan as canvas operations. They
+    # are validated by the action allow-list, not here: this module knows about
+    # shapes, and agent_actions knows what the product is allowed to be asked
+    # to do. A plan may carry either kind, but not neither.
+    actions_raw = raw.get("actions") or []
+    if not isinstance(actions_raw, list):
+        raise PlanError("actions 必须是数组")
+    if not ops_raw and not actions_raw:
+        raise PlanError("计划里没有任何操作")
+
+    import agent_actions
+
+    try:
+        validated_actions = agent_actions.validate_plan(actions_raw)
+    except agent_actions.ActionError as exc:
+        raise PlanError(exc.safe_message) from exc
+    actions = [
+        {
+            "action": item["action"],
+            "params": item["params"],
+            "label": item["spec"].label,
+            "summary": item["spec"].summary,
+            "readOnly": item["spec"].read_only,
+            "requiresConfirmation": item["spec"].requires_confirmation,
+            "costsMoney": item["spec"].costs_money,
+            "confirmPrompt": item["spec"].confirm_prompt,
+        }
+        for item in validated_actions
+    ]
 
     operations = [validate_operation(op) for op in ops_raw]
 
@@ -256,6 +286,7 @@ def validate_plan(raw: Any) -> dict[str, Any]:
         # the model claimed.
         "requiresRunConfirmation": bool(runs) or bool(raw.get("requiresRunConfirmation")),
         "operations": operations,
+        "actions": actions,
     }
 
 
@@ -720,6 +751,82 @@ def _repair_plan(context: dict[str, Any]) -> "dict[str, Any] | None":
     }
 
 
+#: Phrases that ask for a typed domain action rather than a canvas change.
+#: Deliberately narrow: an unrecognised request produces no plan at all, which
+#: is safer than guessing at an action that reads records or spends money.
+_ACTION_INTENTS: list[tuple[tuple[str, ...], str, str]] = [
+    (("校验文案", "检查文案", "重新校验", "跑一下校验"), "validate_listing", "校验文案"),
+    (("生成发布护照", "构建发布护照", "做一份护照"), "build_release_passport", "生成发布护照"),
+    (("导出交接包", "导出发布包", "打包交接"), "export_release_package", "导出交接包"),
+    (("查看发布护照", "打开发布护照"), "open_release_passport", "查看发布护照"),
+    (("分析投放反馈", "看一下反馈", "分析反馈"), "analyze_feedback", "分析投放反馈"),
+    (("政策影响", "影响面分析", "分析政策影响"), "analyze_policy_impact", "分析政策影响面"),
+    (("迁移候选", "生成候选补丁", "构建迁移候选"), "build_migration_candidate", "生成迁移候选补丁"),
+]
+
+
+def _domain_action_plan(text: str, context: dict[str, Any]) -> "dict[str, Any] | None":
+    """A plan carrying one typed domain action, filled from the canvas context.
+
+    Parameters come from what is actually on the canvas, never from the user's
+    prose: the request selects *which* action, and the product supplies the ids.
+    That is what keeps a sentence from naming an arbitrary target.
+    """
+    lowered = (text or "").lower()
+    match = next(
+        (
+            (action, label)
+            for phrases, action, label in _ACTION_INTENTS
+            if any(p in text or p.lower() in lowered for p in phrases)
+        ),
+        None,
+    )
+    if match is None:
+        return None
+    action, label = match
+
+    context = context or {}
+    sku = _sku_node(context)
+    sku_id = ""
+    if sku:
+        fields = sku.get("editableFields") or {}
+        sku_id = str(fields.get("productName") or "").strip()
+    platform = "amazon"
+    for candidate in ("tiktok", "shopify", "amazon"):
+        if candidate in lowered:
+            platform = candidate
+            break
+
+    params: dict[str, Any] = {}
+    if action in ("build_release_passport",):
+        if not sku_id:
+            return None
+        params = {"sku_id": sku_id, "platform": platform}
+    elif action == "analyze_policy_impact":
+        params = {"base": "amazon-us-pre-2025.01.21", "candidate": "amazon-us-2025.01.21"}
+    elif action == "build_migration_candidate":
+        params = {"platform": platform}
+    else:
+        # validate_listing / export_release_package / open_release_passport /
+        # analyze_feedback each need an id the canvas cannot supply on its own.
+        # Rather than invent one, decline to plan and let the Agent answer in
+        # prose about where to run it from.
+        return None
+
+    return {
+        "title": label,
+        "summary": (
+            f"执行「{label}」。这是一个类型化的域操作：模型只能从固定清单里选择操作名与参数，"
+            "不能指定接口、路径或命令。"
+        ),
+        "estimatedModelCalls": 0,
+        "warnings": [],
+        "requiresRunConfirmation": False,
+        "operations": [],
+        "actions": [{"action": action, "params": params}],
+    }
+
+
 def deterministic_plan(text: str, context: dict[str, Any]) -> "dict[str, Any] | None":
     """A plan for *text*, or None when no supported intent is recognised.
 
@@ -727,10 +834,18 @@ def deterministic_plan(text: str, context: dict[str, Any]) -> "dict[str, Any] | 
     proposal to change the canvas, and offering one for "主图能加字吗" would be
     noise at best and a mis-click risk at worst.
     """
+    context = context or {}
+
+    # A domain-action phrase is itself the request, so it is matched before the
+    # canvas action-word gate: "分析政策影响" contains no verb from that list but
+    # is unambiguously a request to run something.
+    action_plan = _domain_action_plan(text, context)
+    if action_plan:
+        return action_plan
+
     if not _has_action(text):
         return None
     tags = _intent(text)
-    context = context or {}
 
     if "repair" in tags:
         plan = _repair_plan(context)
@@ -761,6 +876,15 @@ def plan_reply(plan: dict[str, Any]) -> str:
         bits.append(f"更新 {updated} 个节点")
     if links:
         bits.append(f"建立 {links} 条连接")
+    actions = plan.get("actions") or []
+    if actions and not plan["operations"]:
+        names = "、".join(a.get("label") or a["action"] for a in actions)
+        return (
+            f"我拟了一个方案：执行 {names}。请在下方查看；批准计划后才会执行，"
+            "涉及改动或费用的操作还会再确认一次。"
+        )
+    if actions:
+        bits.append(f"执行 {len(actions)} 个域操作")
     detail = "、".join(bits) or "调整画布"
     return f"我拟了一个方案：{detail}。请在下方查看，确认后才会写入画布。"
 

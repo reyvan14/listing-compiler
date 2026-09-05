@@ -23,6 +23,7 @@ function plan(operations: AgentOperation[], extra: Partial<AgentPlan> = {}): Age
     summary: '测试',
     estimatedModelCalls: 0,
     warnings: [],
+    actions: [],
     requiresRunConfirmation: false,
     operations,
     ...extra,
@@ -261,5 +262,34 @@ describe('validatePlan', () => {
 
   it('rejects an empty plan', () => {
     expect(validatePlan(editor(), plan([])).ok).toBe(false);
+  });
+});
+
+describe('action-only plans', () => {
+  it('are valid: they carry domain actions instead of canvas operations', () => {
+    // Regression: an action-only plan was rejected as "empty", which rendered
+    // it as 无法执行 and left its actions permanently unrunnable.
+    const result = validatePlan(stubEditor([]), {
+      ...plan([]),
+      actions: [
+        {
+          action: 'analyze_policy_impact',
+          params: { base: 'a', candidate: 'b' },
+          label: '分析政策影响面',
+          summary: '',
+          readOnly: true,
+          requiresConfirmation: false,
+          costsMoney: false,
+          confirmPrompt: '',
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('a plan with neither operations nor actions is still an error', () => {
+    const result = validatePlan(stubEditor([]), plan([]));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.join(' ')).toContain('没有任何操作');
   });
 });

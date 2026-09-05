@@ -7,6 +7,7 @@ import {
   type PlanRationale,
 } from './types';
 import { containsMediaPayload } from './canvasContext';
+import { validateActionPlan } from './domainActions';
 import { SseParser, eventPayload } from './sse';
 import { isTraceStage, type TraceStage } from './trace';
 
@@ -23,9 +24,23 @@ export function coercePlan(raw: unknown): AgentPlan | null {
   if (!raw || typeof raw !== 'object') return null;
   const p = raw as Record<string, unknown>;
   if (typeof p.title !== 'string' || typeof p.summary !== 'string') return null;
-  if (!Array.isArray(p.operations) || p.operations.length === 0) return null;
+  const rawOps = Array.isArray(p.operations) ? p.operations : [];
+  const rawActions = Array.isArray(p.actions) ? p.actions : [];
+  // A plan must do something. Canvas operations and domain actions both count.
+  if (rawOps.length === 0 && rawActions.length === 0) return null;
 
-  for (const op of p.operations) {
+  // Actions are re-validated here against the same allow-list the backend
+  // enforces. A malformed or unknown action must never render as an applicable
+  // card, so the whole plan is refused rather than partially shown.
+  const actionCheck = validateActionPlan(
+    rawActions.map(a => ({
+      action: (a as { action?: unknown })?.action,
+      params: (a as { params?: unknown })?.params ?? {},
+    })),
+  );
+  if (!actionCheck.ok) return null;
+
+  for (const op of rawOps) {
     if (!op || typeof op !== 'object') return null;
     const type = (op as { type?: unknown }).type;
     if (typeof type !== 'string' || !(AGENT_OPERATION_TYPES as readonly string[]).includes(type)) {
@@ -50,7 +65,24 @@ export function coercePlan(raw: unknown): AgentPlan | null {
         : 0,
     warnings: Array.isArray(p.warnings) ? p.warnings.filter(w => typeof w === 'string') : [],
     requiresRunConfirmation: p.requiresRunConfirmation !== false,
-    operations: p.operations as AgentPlan['operations'],
+    operations: rawOps as AgentPlan['operations'],
+    actions: actionCheck.actions.map((validated, i) => {
+      const declared = (rawActions[i] ?? {}) as Record<string, unknown>;
+      return {
+        action: validated.spec.action,
+        params: validated.params,
+        // Presentation comes from the local spec, so a hostile payload cannot
+        // relabel a paid action as free.
+        label: validated.spec.label,
+        summary: validated.spec.summary,
+        readOnly: validated.spec.readOnly,
+        requiresConfirmation: validated.spec.requiresConfirmation,
+        costsMoney: validated.spec.costsMoney,
+        confirmPrompt:
+          validated.spec.confirmPrompt ||
+          (typeof declared.confirmPrompt === 'string' ? declared.confirmPrompt : ''),
+      };
+    }),
     rationale: coerceRationale(p.rationale),
   };
 }
