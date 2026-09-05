@@ -40,6 +40,7 @@ import { MigrationPanel } from './MigrationPanel';
 import { PortfolioPanel } from './PortfolioPanel';
 import { FeedbackPanel } from './feedback/FeedbackPanel';
 import { PassportPanel } from './passport/PassportPanel';
+import { StoryboardPanel } from './storyboard/StoryboardPanel';
 import { ProjectMenu } from './project/ProjectMenu';
 import { useProjectPersistence } from './project/useProjectPersistence';
 import { StationAgent } from './StationAgent';
@@ -413,6 +414,10 @@ export function StationApp() {
       {/* Viewport-level listing detail. Reads the shapes, never writes them, so
           the canvas geometry and camera are untouched while it is open. */}
       {editor && <ListingInspector editor={editor} />}
+
+      {/* Same rule for the storyboard: a shot list belongs in a panel, not in a
+          node that would have to grow taller than the viewport. */}
+      {editor && <StoryboardPanel editor={editor} />}
 
       {toast && (
         <div className={styles.toast} role="status">

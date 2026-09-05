@@ -23,6 +23,8 @@ import {
   updateNode,
 } from './shared'
 import { collectVideoUpstream, composeVideoPrompt, videoUpstreamSummary } from './videoInputs'
+import { findSkuShape, type SkuListingNode } from './skuStation'
+import { openStoryboardPanel } from './storyboardPanel'
 
 const VideoCropRect = T.object({
   x: T.number,
@@ -263,6 +265,25 @@ function VideoGenerationNodeComponent({ shape, node }: NodeComponentProps<VideoG
                 </button>
               ))}
             </div>
+            {/* The storyboard is a viewport-level workflow, not a bigger node:
+                a shot list that outgrows the node can only be read by
+                scrolling inside it, which fights the canvas's own pan. */}
+            <button
+              type="button"
+              className={form.pill}
+              data-testid="open-storyboard"
+              onClick={() => {
+                const sku = findSkuShape(editor)
+                const skuNode = sku?.props.node
+                const skuId =
+                  skuNode && skuNode.type === 'sku_listing'
+                    ? (skuNode as SkuListingNode).productName.trim() || String(sku!.id)
+                    : 'default-sku'
+                openStoryboardPanel(editor, String(shape.id), skuId, node.platform || 'tiktok')
+              }}
+            >
+              故事板
+            </button>
             <button
               type="button"
               className={form.run}

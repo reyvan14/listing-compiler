@@ -242,3 +242,21 @@ export function fetchPackage(
 ): Promise<ContentPackage> {
   return request(`/api/storyboard/${id}/package`, productId);
 }
+
+/**
+ * Report one shot's outcome.
+ *
+ * The run token travels with it so the backend can refuse a result that belongs
+ * to a cancelled or superseded run — the client asking politely is not enough.
+ */
+export function reportShot(
+  storyboardId: string,
+  shotId: string,
+  body: { run_token: string; status: 'succeeded' | 'failed' | 'cancelled'; result_url?: string; provider_task_id?: string; error?: string },
+  productId = 'default-product',
+): Promise<{ accepted: boolean; reason?: string; progress: Progress }> {
+  return request(`/api/storyboard/${storyboardId}/shots/${shotId}/result`, productId, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
