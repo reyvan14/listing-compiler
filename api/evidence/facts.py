@@ -68,35 +68,12 @@ def _today() -> date:
 # Deterministic fact detection                                                 #
 # --------------------------------------------------------------------------- #
 
-#: Known measurable attributes: key -> (regex, unit, claim class).
-#: Each pattern captures the numeric value in group 1.
-_MEASURE_PATTERNS: list[tuple[str, str, str, str]] = [
-    ("capacity", r"(?:capacity|容量|volume)\D{0,12}?(\d+(?:\.\d+)?)\s*(?:ml|毫升)", "ml", CLAIM_NUMERIC),
-    ("folded_height", r"(?:folded|折叠|collapsed)\D{0,16}?(\d+(?:\.\d+)?)\s*(?:cm|厘米)", "cm", CLAIM_NUMERIC),
-    ("weight", r"(?:weight|重量|net weight)\D{0,12}?(\d+(?:\.\d+)?)\s*(?:g|克)\b", "g", CLAIM_NUMERIC),
-]
-
-#: Range attributes: key -> regex capturing low and high.
-_RANGE_PATTERNS: list[tuple[str, str, str, str]] = [
-    (
-        "temperature_range",
-        r"(-?\d+)\s*°?\s*C\s*(?:to|~|-|–|至)\s*(-?\d+)\s*°?\s*C",
-        "°C",
-        CLAIM_PERFORMANCE,
-    ),
-]
-
-#: Boolean / categorical attributes: key -> (positive regex, negative regex, claim class).
-_FLAG_PATTERNS: list[tuple[str, str, str, str]] = [
-    ("bpa_free", r"bpa[\s-]*free|不含\s*bpa", r"contains\s+bpa|检出\s*bpa", CLAIM_CERTIFICATION),
-    (
-        "food_grade_silicone",
-        r"food[\s-]*grade\s+silicone|食品级\s*硅胶",
-        r"",
-        CLAIM_MATERIAL,
-    ),
-    ("dishwasher_safe", r"dishwasher[\s-]*safe|可用洗碗机", r"", CLAIM_PERFORMANCE),
-]
+#: Attribute definitions now live in ``factsregistry``, which declares each
+#: attribute's units, patterns, data type and conflict rule in one place. This
+#: module keeps the ledger; it no longer keeps the ontology.
+#:
+#: The import is deferred inside the function because ``factsregistry`` imports
+#: the claim-type constants from this module.
 
 
 def detect_facts(text: str) -> list[dict[str, Any]]:
@@ -104,48 +81,40 @@ def detect_facts(text: str) -> list[dict[str, Any]]:
 
     Returns ``{key, value, unit, display, claim_type}`` entries. The caller
     decides state; this function never marks anything verified.
+
+    Detection is delegated to the fact registry so a new attribute is a
+    declaration rather than an edit to three parallel pattern lists.
     """
-    if not text:
-        return []
-    lowered = text.lower()
-    found: dict[str, dict[str, Any]] = {}
+    import factsregistry
 
-    for key, pattern, unit, claim in _MEASURE_PATTERNS:
-        m = re.search(pattern, lowered, re.IGNORECASE)
-        if m:
-            found[key] = {
-                "key": key,
-                "value": m.group(1),
-                "unit": unit,
-                "display": f"{m.group(1)} {unit}",
-                "claim_type": claim,
-            }
+    return [
+        {
+            "key": found["key"],
+            "value": found["value"],
+            "unit": found["unit"],
+            "display": found["display"],
+            "claim_type": found["claim_type"],
+        }
+        for found in factsregistry.detect(text)
+    ]
 
-    for key, pattern, unit, claim in _RANGE_PATTERNS:
-        m = re.search(pattern, text, re.IGNORECASE)
-        if m:
-            lo, hi = m.group(1), m.group(2)
-            found[key] = {
-                "key": key,
-                "value": f"{lo}..{hi}",
-                "unit": unit,
-                "display": f"{lo}{unit} to {hi}{unit}",
-                "claim_type": claim,
-            }
 
-    for key, pos, neg, claim in _FLAG_PATTERNS:
-        if neg and re.search(neg, lowered, re.IGNORECASE):
-            found[key] = {
-                "key": key, "value": "false", "unit": "",
-                "display": f"{key} = false", "claim_type": claim,
-            }
-        elif re.search(pos, lowered, re.IGNORECASE):
-            found[key] = {
-                "key": key, "value": "true", "unit": "",
-                "display": f"{key} = true", "claim_type": claim,
-            }
+def values_conflict(key: str, values: "set[str] | list[str]") -> bool:
+    """Whether readings for *key* genuinely disagree.
 
-    return [found[k] for k in sorted(found)]
+    Exact string inequality was the old rule, which called ``350`` and ``350.0``
+    a conflict and made a re-scan of the same document look like contradictory
+    evidence. The registry knows each attribute's data type and tolerance, so
+    the comparison is now the attribute's own.
+    """
+    import factsregistry
+
+    distinct = [v for v in dict.fromkeys(str(v) for v in values) if v]
+    for i, left in enumerate(distinct):
+        for right in distinct[i + 1:]:
+            if factsregistry.conflicts(key, left, right):
+                return True
+    return False
 
 
 def fact_id_for(key: str) -> str:
@@ -254,7 +223,7 @@ def ingest_document(
                 ] + [link]
 
                 values = {s.get("value") for s in fact["sources"] if s.get("value")}
-                if len(values) > 1:
+                if values_conflict(detected["key"], values):
                     fact["state"] = CONFLICTING
                     fact["note"] = "多个来源给出不同数值，需人工判定。"
                 else:
@@ -296,7 +265,7 @@ def set_fact_state(
                 "没有任何证据来源，无法标记为已核实。",
             )
         source_values = {str(s.get("value")) for s in fact["sources"] if s.get("value") is not None}
-        if state == VERIFIED and len(source_values) > 1:
+        if state == VERIFIED and values_conflict(fact.get("key", ""), source_values):
             raise store.EvidenceError(
                 "conflicting_evidence",
                 "证据来源仍有冲突；请先移除错误来源，再确认事实。",
@@ -370,7 +339,7 @@ def purge_source(source_id: str) -> int:
             if not kept:
                 fact["state"] = UNSUPPORTED
                 fact["note"] = "支撑该事实的证据文件已被移除。"
-            elif len(values) > 1:
+            elif values_conflict(fact.get("key", ""), values):
                 fact["state"] = CONFLICTING
                 fact["note"] = "多个来源给出不同数值，需人工判定。"
             else:
@@ -451,3 +420,55 @@ def list_facts() -> list[dict[str, Any]]:
 
 def facts_by_id() -> dict[str, dict[str, Any]]:
     return {f["fact_id"]: f for f in list_facts()}
+
+
+def link_source(
+    fact_id: str,
+    source_id: str,
+    *,
+    value: str,
+    method: str = "deterministic",
+    excerpt: str = "",
+    page: "int | None" = None,
+    box: "dict[str, Any] | None" = None,
+) -> dict[str, Any]:
+    """Attach one document location to an existing fact.
+
+    Intake needs this: an operator confirming an extracted reading should carry
+    the document it came from into the ledger, so the fact is *supported* rather
+    than a bare assertion. Linking still does not verify — the state lands at
+    ``needs_review`` and a human confirms separately.
+    """
+    with _LOCK:
+        ledger = read_ledger()
+        fact = ledger["facts"].get(fact_id)
+        if fact is None:
+            raise store.EvidenceError("unknown_fact", "找不到该产品事实。", status=404)
+        link = {
+            "source_id": source_id,
+            "page": page,
+            "sheet": "",
+            "cell": "",
+            "excerpt": (excerpt or "")[:400],
+            "method": method,
+            "value": value,
+            "expires_on": "",
+        }
+        if box:
+            link["box"] = dict(box)
+        fact["sources"] = [
+            s for s in fact.get("sources", []) if s.get("source_id") != source_id
+        ] + [link]
+
+        values = {s.get("value") for s in fact["sources"] if s.get("value")}
+        if values_conflict(fact.get("key", ""), values):
+            fact["state"] = CONFLICTING
+            fact["note"] = "多个来源给出不同数值，需人工判定。"
+        elif fact["state"] != VERIFIED:
+            fact["state"] = NEEDS_REVIEW
+            fact["note"] = ""
+        fact["value"] = value
+        fact["display"] = f"{value} {fact.get('unit', '')}".strip()
+        fact["updated_at"] = _now()
+        _write_ledger(ledger)
+        return dict(fact)

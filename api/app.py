@@ -22,12 +22,15 @@ from pydantic import BaseModel, Field
 
 import agent_plan
 import evidence
+import factsregistry
 import imagecheck
+import intake
 import mediaassets
 import passport
 import migration
 import policy
 import portfolio
+import providers
 import review
 import agent_stream
 from agent import agent_reply
@@ -66,7 +69,13 @@ async def scope_evidence_ledger(request: Request, call_next):
     hashes them before they become a path segment either way.
     """
     if not request.url.path.startswith(
-        ("/api/evidence", "/api/review", "/api/media/assets", "/api/passport")
+        (
+            "/api/evidence",
+            "/api/review",
+            "/api/media/assets",
+            "/api/passport",
+            "/api/intake",
+        )
     ):
         return await call_next(request)
     params = request.query_params
@@ -228,6 +237,31 @@ def evidence_delete_source(source_id: str):
 
 class SourceExpiryBody(BaseModel):
     expires_on: str = ""
+
+
+@app.get("/api/evidence/sources/{source_id}/blob")
+def evidence_source_blob(source_id: str):
+    """The stored document's bytes, so the viewer can draw OCR boxes over it.
+
+    Only image and PDF families are served inline; anything else downloads. The
+    scope may travel as query parameters because an ``<img src>`` cannot carry
+    headers — the same isolation keys, not credentials.
+    """
+    try:
+        source = evidence.store.get_source(source_id)
+        data = evidence.store.read_blob(source_id)
+    except evidence.EvidenceError as exc:
+        return _evidence_error(exc)
+    mime = source.get("mime_type", "application/octet-stream")
+    inline = mime.startswith("image/") or mime == "application/pdf"
+    return Response(
+        content=data,
+        media_type=mime,
+        headers={
+            "Cache-Control": "private, max-age=300",
+            "Content-Disposition": "inline" if inline else "attachment",
+        },
+    )
 
 
 @app.post("/api/evidence/sources/{source_id}/expiry")
@@ -751,6 +785,131 @@ def passport_manifest(passport_id: str):
     except passport.PassportError as exc:
         return _passport_error(exc)
     return {"code": 0, "data": {"manifest": built["manifest"], "export": built["export"]}}
+
+
+# --------------------------------------------------------------------------- #
+# Multimodal intake: read uploads, never believe them. Every candidate lands    #
+# as needs_review; only an operator promotes one, and only approved facts       #
+# reach a generation prompt.                                                    #
+# --------------------------------------------------------------------------- #
+
+
+def _intake_error(exc: intake.IntakeError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.http_status,
+        content={"code": 1, "error": exc.code, "message": exc.safe_message},
+    )
+
+
+@app.get("/api/providers/capabilities")
+def provider_capabilities():
+    """What this deployment can actually do, including what it cannot."""
+    return {"code": 0, "data": providers.snapshot()}
+
+
+@app.get("/api/facts/registry")
+def facts_registry():
+    """The fact ontology, so the UI labels attributes without hardcoding them."""
+    return {
+        "code": 0,
+        "data": {
+            "facts": [
+                {
+                    "key": spec.key,
+                    "label": spec.label,
+                    "label_en": spec.label_en,
+                    "claim_type": spec.claim_type,
+                    "data_type": spec.data_type,
+                    "unit_family": spec.unit_family,
+                    "unit": factsregistry.UNIT_FAMILIES.get(spec.unit_family, ""),
+                    "evidence_required": spec.evidence_required,
+                    "legacy": spec.key in factsregistry.LEGACY_KEYS,
+                }
+                for spec in (factsregistry.REGISTRY[k] for k in factsregistry.keys())
+            ],
+            "unit_families": factsregistry.UNIT_FAMILIES,
+        },
+    }
+
+
+@app.post("/api/intake/sources/{source_id}/extract")
+def intake_extract(source_id: str):
+    """Run intake over one stored evidence document or image."""
+    try:
+        return {"code": 0, "data": intake.ingest_source(source_id)}
+    except evidence.EvidenceError as exc:
+        return _evidence_error(exc)
+    except intake.IntakeError as exc:
+        return _intake_error(exc)
+
+
+@app.get("/api/intake/candidates")
+def intake_candidates(key: str = Query(""), origin: str = Query("")):
+    return {
+        "code": 0,
+        "data": {
+            "candidates": intake.list_candidates(key=key, origin=origin),
+            "conflicts": intake.list_conflicts(),
+        },
+    }
+
+
+class ReviewCandidateBody(BaseModel):
+    decision: Literal["approved", "rejected", "corrected"]
+    operator: str = ""
+    value: "str | None" = None
+    note: str = ""
+
+
+@app.post("/api/intake/candidates/{candidate_id}/review")
+def intake_review(candidate_id: str, body: ReviewCandidateBody):
+    try:
+        candidate = intake.review_candidate(
+            candidate_id,
+            body.decision,
+            operator=body.operator,
+            value=body.value,
+            note=body.note,
+        )
+    except intake.IntakeError as exc:
+        return _intake_error(exc)
+    return {
+        "code": 0,
+        "data": {
+            "candidate": candidate,
+            "conflicts": intake.list_conflicts(),
+            "facts": evidence.facts.list_facts(),
+        },
+    }
+
+
+class AppearanceBody(BaseModel):
+    """Visible observations about an image. Hard claim classes are refused."""
+
+    source_id: str = ""
+    observations: dict[str, str] = Field(default_factory=dict)
+
+
+@app.post("/api/intake/appearance")
+def intake_appearance(body: AppearanceBody):
+    kept = intake.appearance_candidates(body.observations, source_id=body.source_id)
+    recorded = intake.record(kept)
+    return {
+        "code": 0,
+        "data": {
+            "candidates": recorded,
+            # Refusals are returned, not dropped: the operator sees which
+            # observations could not become facts and why.
+            "refused": intake.rejected_appearance_keys(body.observations),
+            "conflicts": intake.list_conflicts(),
+        },
+    }
+
+
+@app.get("/api/intake/prompt-facts")
+def intake_prompt_facts():
+    """Exactly what generation is allowed to see: approved, typed facts only."""
+    return {"code": 0, "data": {"facts": intake.prompt_facts()}}
 
 
 # --------------------------------------------------------------------------- #

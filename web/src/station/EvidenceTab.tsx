@@ -16,6 +16,7 @@ import {
   type ProductFact,
 } from './evidenceApi'
 import type { GateState } from './useEvidenceGate'
+import { IntakeReview } from './intake/IntakeReview'
 import styles from './listingInspector.module.scss'
 
 // Evidence tab: the ledger behind every commercial claim in this card.
@@ -266,13 +267,22 @@ export function EvidenceTab({
                 >
                   移除
                 </button>
+                {/* Reading the upload is a separate, opt-in step: it produces
+                    candidates for review, never facts. */}
+                <IntakeReview
+                  sourceId={src.source_id}
+                  sourceMime={src.mime_type}
+                  productId={productId}
+                  onLedgerChange={onLedgerChange}
+                />
               </li>
             ))}
           </ul>
         )}
         <p className={styles.meta}>
-          支持 PDF、JPG/PNG、TXT/Markdown、CSV、XLSX。图片没有文本层且未启用 OCR，
-          其中的信息需人工阅读确认，不会自动转为已核实。
+          支持 PDF、JPG/PNG、TXT/Markdown、CSV、XLSX。图片可用「读取并提取事实」做 OCR
+          （未安装引擎时会如实说明），读出的内容一律是待确认的候选事实，
+          经人工确认读数后仍需在本页核实才算已核实。
         </p>
       </section>
     </div>
