@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Editor } from 'tldraw';
+import { openRevisionForReview } from '@/pipeline/nodes/types/listingInspector';
 import {
   CONFIDENCE_LABEL,
   SIGNAL_LABEL,
@@ -6,14 +8,17 @@ import {
   feedbackErrorMessage,
   fetchAnalysis,
   fetchComparison,
+  fetchRevisionContent,
   importFile,
   listExperiments,
   listImports,
+  promoteSignal,
   templateUrl,
   type Analysis,
   type Comparison,
   type Experiment,
   type ImportRecord,
+  type Signal,
 } from './feedbackApi';
 import {
   METRIC_ROWS,
@@ -34,9 +39,12 @@ import styles from './feedbackPanel.module.scss';
 
 export function FeedbackPanel({
   onClose,
+  editor,
   productId = 'default-product',
 }: {
   onClose: () => void;
+  /** Needed to hand a created candidate to the listing review interface. */
+  editor: Editor | null;
   productId?: string;
 }) {
   const [imports, setImports] = useState<ImportRecord[]>([]);
@@ -49,6 +57,10 @@ export function FeedbackPanel({
   const [candidate, setCandidate] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  /** Draft candidate copy per signal index, prefilled from the baseline. */
+  const [drafts, setDrafts] = useState<Record<number, { title: string; fields: { label: string; value: string }[] }>>({});
+  const [created, setCreated] = useState<Record<number, { revisionId: string; platform: string; replayed: boolean }>>({});
+  const [operator, setOperator] = useState('');
   const [notice, setNotice] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -112,6 +124,62 @@ export function FeedbackPanel({
       await action();
       await reload();
       if (mounted.current) setNotice(done);
+    } catch (err) {
+      if (mounted.current) setError(feedbackErrorMessage(err));
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  };
+
+  /**
+   * Load the baseline copy so the operator edits real text rather than being
+   * shown invented "improved" copy. The signal supplies a direction; a human
+   * writes the words.
+   */
+  const prepareCandidate = async (index: number, signal: Signal) => {
+    setError('');
+    try {
+      const baseline = await fetchRevisionContent(signal.revision_id, productId);
+      if (!mounted.current) return;
+      setDrafts(prev => ({ ...prev, [index]: baseline.revision.content }));
+    } catch (err) {
+      if (mounted.current) setError(feedbackErrorMessage(err));
+    }
+  };
+
+  const createCandidate = async (index: number, signal: Signal) => {
+    const draft = drafts[index];
+    if (!draft) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await promoteSignal(
+        selected,
+        index,
+        operator,
+        draft,
+        // Stable across re-renders and double clicks, so a retry replays the
+        // first candidate instead of forking another one.
+        `${selected}:${index}:${signal.revision_id}`,
+        productId,
+      );
+      if (!mounted.current) return;
+      setCreated(prev => ({
+        ...prev,
+        [index]: {
+          revisionId: result.revision.revision_id,
+          // The revision's own platform, not a guess from the import data:
+          // the review inspector must open the tab this candidate belongs to.
+          platform: result.revision.platform,
+          replayed: result.replayed,
+        },
+      }));
+      setNotice(
+        result.replayed
+          ? '该信号已经创建过候选修订，这里返回的是同一条。'
+          : '已创建候选修订；原已批准修订未被改动。',
+      );
     } catch (err) {
       if (mounted.current) setError(feedbackErrorMessage(err));
     } finally {
@@ -243,10 +311,19 @@ export function FeedbackPanel({
             <section className={styles.section} data-testid="feedback-signals">
               <h3>观测到的信号（{analysis.signals.length}）</h3>
               {analysis.signals.length === 0 ? (
-                <p className={styles.muted}>本次导入没有触发任何检测阈值。</p>
+                <p className={styles.muted} data-testid="feedback-no-signals">
+                  本次导入没有触发任何检测阈值，因此没有可操作的改进建议。
+                  这不代表文案没有问题，只代表这批数据里没有达到阈值的信号。
+                </p>
               ) : (
                 <ul className={styles.signals}>
-                  {orderSignals(analysis.signals).map((s, i) => (
+                  {orderSignals(analysis.signals).map(s => {
+                    // orderSignals re-sorts by confidence, so the render index
+                    // is NOT the backend's signal_index. Promoting by the render
+                    // index would create a candidate for a different signal than
+                    // the one that was clicked.
+                    const i = analysis.signals.indexOf(s);
+                    return (
                     <li
                       key={`${s.signal}-${s.revision_id}-${i}`}
                       data-testid="feedback-signal"
@@ -264,9 +341,15 @@ export function FeedbackPanel({
                       <p className={styles.proposal}>
                         建议方向（{s.affected_field}）：{s.proposal}
                       </p>
-                      <p className={styles.muted}>
-                        支撑行：{s.supporting_rows.join('、')} · 风险：{s.risks}
+                      <p className={styles.muted} data-testid="feedback-evidence">
+                        证据：{s.supporting_rows.length} 行原始数据（第{' '}
+                        {s.supporting_rows.join('、')} 行）
+                        {analysis.overall.period_start && analysis.overall.period_end
+                          ? ` · 数据区间 ${analysis.overall.period_start} 至 ${analysis.overall.period_end}`
+                          : ' · 数据区间未知（导入文件缺少日期列）'}
+                        {' '}· 影响修订 <code>{s.revision_id}</code> 的「{s.affected_field}」
                       </p>
+                      <p className={styles.muted}>风险：{s.risks}</p>
                       {s.quotes.length > 0 && (
                         <ul className={styles.quotes}>
                           {s.quotes.map((q, qi) => (
@@ -275,8 +358,82 @@ export function FeedbackPanel({
                         </ul>
                       )}
                       <p className={styles.causality}>{s.causality}</p>
+
+                      {created[i] ? (
+                        <div className={styles.candidateBox} data-testid="feedback-created">
+                          <p className={styles.ok}>
+                            候选修订 <code>{created[i].revisionId}</code> 已创建
+                            {created[i].replayed && '（重复请求，返回同一条）'}
+                            ，原已批准修订未被改动。
+                          </p>
+                          <button
+                            type="button"
+                            data-testid="feedback-open-review"
+                            onClick={() => {
+                              if (!editor) return;
+                              openRevisionForReview(
+                                editor,
+                                created[i].platform,
+                                created[i].revisionId,
+                              );
+                              onClose();
+                            }}
+                          >
+                            在审核中打开并对比
+                          </button>
+                        </div>
+                      ) : drafts[i] ? (
+                        <div className={styles.candidateBox} data-testid="feedback-draft">
+                          <label>
+                            <span>候选标题（基于基线修订，请自行改写）</span>
+                            <input
+                              type="text"
+                              value={drafts[i].title}
+                              data-testid="feedback-draft-title"
+                              onChange={e =>
+                                setDrafts(prev => ({
+                                  ...prev,
+                                  [i]: { ...prev[i], title: e.target.value },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label>
+                            <span>操作人</span>
+                            <input
+                              type="text"
+                              value={operator}
+                              data-testid="feedback-operator"
+                              onChange={e => setOperator(e.target.value)}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className={styles.primary}
+                            disabled={busy || !operator.trim() || !drafts[i].title.trim()}
+                            data-testid="feedback-create-candidate"
+                            onClick={() => void createCandidate(i, s)}
+                          >
+                            创建候选版本
+                          </button>
+                          <p className={styles.muted}>
+                            这里预填的是基线修订的原文，不是模型生成的「改进版」。
+                            候选修订会进入审核流程，需要校验与批准后才可能替换现有版本。
+                          </p>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          data-testid="feedback-prepare-candidate"
+                          onClick={() => void prepareCandidate(i, s)}
+                        >
+                          创建候选版本…
+                        </button>
+                      )}
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
             </section>

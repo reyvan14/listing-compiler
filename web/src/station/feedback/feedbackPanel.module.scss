@@ -380,3 +380,73 @@
     }
   }
 }
+
+/* ---- 候选修订 ---------------------------------------------------------- */
+.candidateBox {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid #6b5a35;
+  border-radius: 7px;
+  background: rgba(107, 90, 53, 0.12);
+
+  label {
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  span {
+    display: block;
+    margin-bottom: 3px;
+    font-size: 11px;
+    color: #a8a49b;
+  }
+
+  input {
+    width: 100%;
+    padding: 5px 9px;
+    border: 1px solid #3a3327;
+    border-radius: 6px;
+    background: #191713;
+    font: inherit;
+    font-size: 12px;
+    color: #e1ded8;
+  }
+
+  button {
+    padding: 4px 11px;
+    border: 1px solid #4a4335;
+    border-radius: 6px;
+    background: transparent;
+    font: inherit;
+    font-size: 11px;
+    color: #cfc9bd;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+  }
+
+  code {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+
+.ok {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #7ee0b0;
+}
+
+.primary {
+  border-color: #6b5a35 !important;
+  color: #ffce7a !important;
+}

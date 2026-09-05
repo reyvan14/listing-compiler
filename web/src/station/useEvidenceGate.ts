@@ -35,6 +35,19 @@ export function nodeToDraft(node: ListingResultNode): Record<string, unknown> {
   };
 }
 
+/**
+ * The evidence-store partition every listing workflow must agree on.
+ *
+ * Revisions, fact ledgers and feedback promotions are all scoped by this id on
+ * the server. Any panel that reads or writes them has to derive it the same
+ * way, or it silently addresses a different, empty store.
+ */
+export function skuProductId(editor: Editor | null): string {
+  const sku = editor ? findSkuShape(editor) : null;
+  if (!sku || sku.props.node.type !== 'sku_listing') return 'default-product';
+  return `${sku.id}|${(sku.props.node as SkuListingNode).productName.trim().toLowerCase()}`;
+}
+
 /** `editor` is passed in rather than pulled from context: the inspector is a
  * viewport-level overlay rendered OUTSIDE the <Tldraw> provider, so useEditor()
  * would throw and take the whole app down with it. */
@@ -46,9 +59,7 @@ export function useEvidenceGate(node: ListingResultNode | null, editor: Editor) 
   // operator typed into the truth source must be answerable even when this
   // platform's draft paraphrases it away.
   const sku = findSkuShape(editor);
-  const productId = sku
-    ? `${sku.id}|${sku.props.node.type === 'sku_listing' ? (sku.props.node as SkuListingNode).productName.trim().toLowerCase() : ''}`
-    : 'default-product';
+  const productId = skuProductId(editor);
   const sourcePoints =
     sku && sku.props.node.type === 'sku_listing'
       ? (sku.props.node as SkuListingNode).points

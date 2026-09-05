@@ -13,11 +13,13 @@ export type InspectorState = {
   platform: string | null
   /** Shape that opened it, so focus can return there on close. */
   originShapeId: string | null
+  /** Open the review tab on this exact revision, when something linked to it. */
+  focusRevisionId: string | null
 }
 
 export const listingInspectorState = new EditorAtom<InspectorState>(
   'listing inspector',
-  () => ({ platform: null, originShapeId: null }),
+  () => ({ platform: null, originShapeId: null, focusRevisionId: null }),
 )
 
 export function openListingInspector(
@@ -28,14 +30,38 @@ export function openListingInspector(
   listingInspectorState.set(editor, {
     platform,
     originShapeId: originShapeId ?? null,
+    focusRevisionId: null,
+  })
+}
+
+/**
+ * Open the inspector's review tab on one specific revision.
+ *
+ * Used when something elsewhere — a feedback candidate, an Agent result —
+ * created a revision and needs to hand the reviewer straight to it rather than
+ * to whatever the canvas happens to show.
+ */
+export function openRevisionForReview(
+  editor: Editor,
+  platform: string,
+  revisionId: string,
+) {
+  listingInspectorState.set(editor, {
+    platform,
+    originShapeId: null,
+    focusRevisionId: revisionId,
   })
 }
 
 export function closeListingInspector(editor: Editor) {
-  listingInspectorState.set(editor, { platform: null, originShapeId: null })
+  listingInspectorState.set(editor, {
+    platform: null,
+    originShapeId: null,
+    focusRevisionId: null,
+  })
 }
 
 /** Switch platform tabs without closing or changing the origin shape. */
 export function selectInspectorPlatform(editor: Editor, platform: string) {
-  listingInspectorState.update(editor, s => ({ ...s, platform }))
+  listingInspectorState.update(editor, s => ({ ...s, platform, focusRevisionId: null }))
 }

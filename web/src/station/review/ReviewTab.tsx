@@ -69,10 +69,13 @@ export function ReviewTab({
   node,
   sku,
   productId,
+  focusRevisionId = null,
 }: {
   node: ListingResultNode;
   sku: SkuSource;
   productId: string;
+  /** Open this exact revision instead of the one the canvas implies. */
+  focusRevisionId?: string | null;
 }) {
   const [view, setView] = useState<RevisionView | null>(null);
   const [buffer, setBuffer] = useState<RevisionContent | null>(null);
@@ -97,11 +100,12 @@ export function ReviewTab({
   const load = useCallback(
     async (revisionId: string) => {
       const next = await fetchRevision(revisionId, productId);
-      if (!mounted.current) return;
+      if (!mounted.current) return null;
       setView(next);
       setBuffer(next.revision.content);
       setAckChoice([]);
       setDiff(null);
+      return next;
     },
     [productId],
   );
@@ -117,6 +121,32 @@ export function ReviewTab({
   const key = `${sku.skuId}|${node.platform}`;
 
   useEffect(() => {
+    // A linked revision wins over the canvas bootstrap: whoever sent the
+    // reviewer here meant this revision, not whatever is on screen.
+    if (focusRevisionId) {
+      if (bootstrapped.current === focusRevisionId) return;
+      bootstrapped.current = focusRevisionId;
+      setBusy('loading');
+      setError('');
+      load(focusRevisionId)
+        // A candidate arrives here precisely because someone wants to judge the
+        // change, so show the field-level diff against the revision it forked
+        // from without making them hunt for it in the history list.
+        .then(next => {
+          const base = next?.revision.parent_revision_id;
+          if (!base) return null;
+          return fetchDiff(base, focusRevisionId, productId);
+        })
+        .then(d => {
+          if (d && mounted.current) setDiff(d);
+        })
+        .catch(err => {
+          bootstrapped.current = '';
+          setError(reviewErrorMessage(err));
+        })
+        .finally(() => setBusy(''));
+      return;
+    }
     if (bootstrapped.current === key) return;
     bootstrapped.current = key;
 
@@ -152,7 +182,7 @@ export function ReviewTab({
     };
     // `generated` and the sku details are read at bootstrap time only; see above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, productId, load]);
+  }, [key, productId, load, focusRevisionId]);
 
   const revision = view?.revision ?? null;
   const validation = view?.validation ?? null;

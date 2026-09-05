@@ -453,3 +453,94 @@ def test_the_experiment_endpoints_round_trip():
         f"/api/feedback/experiments/{created['experiment_id']}/state", json={"state": "running"}
     ).json()["data"]["experiment"]
     assert updated["state"] == "running"
+
+
+# --------------------------------------------------------------------------- #
+# Promotion is idempotent and traceable                                        #
+# --------------------------------------------------------------------------- #
+
+
+def approved_baseline() -> str:
+    revision = review.create_revision(
+        sku_id="AERO-350",
+        platform="amazon",
+        content={"title": "Collapsible Travel Cup with Leakproof Lid", "fields": bullets()},
+    )
+    review.submit_for_validation(revision["revision_id"])
+    review.approve(revision["revision_id"], operator="lottie")
+    return revision["revision_id"]
+
+
+def test_promoting_the_same_signal_twice_creates_one_candidate():
+    """A double click must not leave a pile of near-identical drafts."""
+    baseline = approved_baseline()
+    record = feedback.create_import(
+        csv_rows(row(revision=baseline, impressions="50000", clicks="200"))
+    )
+    content = {"title": "Collapsible Travel Cup 350ml Leakproof Lid", "fields": bullets()}
+
+    first = feedback.promote_signal(
+        record["import_id"], 0, operator="lottie", content=content, idempotency_key="k1"
+    )
+    second = feedback.promote_signal(
+        record["import_id"], 0, operator="lottie", content=content, idempotency_key="k1"
+    )
+
+    assert first["replayed"] is False
+    assert second["replayed"] is True
+    assert second["revision"]["revision_id"] == first["revision"]["revision_id"]
+    assert len(review.list_revisions(sku_id="AERO-350", platform="amazon")) == 2
+
+
+def test_a_promotion_records_the_whole_provenance_chain():
+    baseline = approved_baseline()
+    record = feedback.create_import(
+        csv_rows(row(revision=baseline, impressions="50000", clicks="200"))
+    )
+    promoted = feedback.promote_signal(
+        record["import_id"],
+        0,
+        operator="lottie",
+        content={"title": "Collapsible Travel Cup 350ml", "fields": bullets()},
+    )
+
+    chain = promoted["provenance"]
+    assert chain["import_id"] == record["import_id"]
+    assert chain["baseline_revision_id"] == baseline
+    assert chain["candidate_revision_id"] == promoted["revision"]["revision_id"]
+    assert chain["supporting_rows"]
+    assert chain["operator"] == "lottie"
+    assert feedback.promotions() == [chain]
+
+
+def test_the_promote_endpoint_is_idempotent_too():
+    baseline = approved_baseline()
+    upload = client.post(
+        "/api/feedback/import",
+        files={
+            "file": (
+                "aug.csv",
+                csv_rows(row(revision=baseline, impressions="50000", clicks="200")),
+                "text/csv",
+            )
+        },
+    ).json()["data"]["import"]
+
+    payload = {
+        "signal_index": 0,
+        "operator": "lottie",
+        "content": {"title": "Collapsible Travel Cup 350ml", "fields": bullets()},
+        "idempotency_key": "http-promote",
+    }
+    first = client.post(f"/api/feedback/imports/{upload['import_id']}/promote", json=payload)
+    second = client.post(f"/api/feedback/imports/{upload['import_id']}/promote", json=payload)
+
+    assert first.json()["data"]["replayed"] is False
+    assert second.json()["data"]["replayed"] is True
+    assert (
+        second.json()["data"]["revision"]["revision_id"]
+        == first.json()["data"]["revision"]["revision_id"]
+    )
+
+    chain = client.get("/api/feedback/promotions").json()["data"]["promotions"]
+    assert len(chain) == 1

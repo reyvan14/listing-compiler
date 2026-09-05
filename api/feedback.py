@@ -457,7 +457,7 @@ def _ledger_path() -> Path:
 
 
 def _blank() -> dict[str, Any]:
-    return {"schema": _SCHEMA, "seq": 0, "imports": {}, "experiments": {}}
+    return {"schema": _SCHEMA, "seq": 0, "imports": {}, "experiments": {}, "promotions": {}}
 
 
 def read_ledger() -> dict[str, Any]:
@@ -471,6 +471,7 @@ def read_ledger() -> dict[str, Any]:
     if not isinstance(data, dict) or not isinstance(data.get("imports"), dict):
         return _blank()
     data.setdefault("experiments", {})
+    data.setdefault("promotions", {})
     data.setdefault("seq", 0)
     return data
 
@@ -599,18 +600,32 @@ def promote_signal(
     *,
     operator: str,
     content: dict[str, Any],
+    idempotency_key: str = "",
 ) -> dict[str, Any]:
     """Turn a signal into a candidate revision through the existing workflow.
 
     It goes in as a draft via ``review.save_draft``, which forks rather than
     overwrites when the source revision has been approved. A feedback signal
     never edits a live listing.
+
+    The promotion is recorded against an idempotency key so a double click, a
+    retry or a reconnect produces one candidate rather than a pile of
+    near-identical drafts. The record is also the provenance link: import →
+    signal → candidate revision, kept so a reviewer can ask where a change came
+    from months later.
     """
     import review
 
     operator = (operator or "").strip()[:120]
     if not operator:
         raise FeedbackError("missing_operator", "请填写操作人。")
+
+    key = (idempotency_key or f"{import_id}:{signal_index}").strip()[:160]
+    with _LOCK:
+        ledger = read_ledger()
+        previous = (ledger.get("promotions") or {}).get(key)
+    if previous:
+        return {**previous, "replayed": True}
 
     analysis = analyze_import(import_id)
     try:
@@ -623,12 +638,35 @@ def promote_signal(
     except review.ReviewError as exc:
         raise FeedbackError(exc.code, exc.safe_message, status=exc.http_status) from exc
 
-    return {
+    result = {
         "signal": signal,
         "revision": revision,
+        "baseline_revision_id": signal["revision_id"],
         "forked": revision["revision_id"] != signal["revision_id"],
+        # The traceable chain the spec asks for, stored rather than reconstructed.
+        "provenance": {
+            "import_id": import_id,
+            "signal_index": signal_index,
+            "signal": signal["signal"],
+            "baseline_revision_id": signal["revision_id"],
+            "candidate_revision_id": revision["revision_id"],
+            "supporting_rows": signal["supporting_rows"],
+            "operator": operator,
+            "at": _now(),
+        },
         "note": "已作为候选修订进入审核流程；原已批准修订未被改动。",
+        "replayed": False,
     }
+    with _LOCK:
+        ledger = read_ledger()
+        ledger.setdefault("promotions", {})[key] = result
+        _write_ledger(ledger)
+    return result
+
+
+def promotions() -> list[dict[str, Any]]:
+    """Every feedback-driven candidate, with its provenance chain."""
+    return [row["provenance"] for row in (read_ledger().get("promotions") or {}).values()]
 
 
 # --------------------------------------------------------------------------- #

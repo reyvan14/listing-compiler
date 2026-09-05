@@ -45,6 +45,7 @@ import { ProjectMenu } from './project/ProjectMenu';
 import { useProjectPersistence } from './project/useProjectPersistence';
 import { StationAgent } from './StationAgent';
 import { StationSidebar } from './StationSidebar';
+import { skuProductId } from './useEvidenceGate';
 import styles from './nodes.module.scss';
 
 const tldrawOptions: Partial<TldrawOptions> = {
@@ -409,7 +410,15 @@ export function StationApp() {
 
       {/* Analytics live in their own panel: tables of numbers need columns, and
           the canvas gets at most a concise candidate node. */}
-      {feedbackOpen && <FeedbackPanel onClose={() => setFeedbackOpen(false)} />}
+      {feedbackOpen && (
+        <FeedbackPanel
+          editor={editor}
+          // Same partition the review workflow writes into, so a promoted
+          // signal can actually find the revision it forks from.
+          productId={skuProductId(editor)}
+          onClose={() => setFeedbackOpen(false)}
+        />
+      )}
 
       {/* Viewport-level listing detail. Reads the shapes, never writes them, so
           the canvas geometry and camera are untouched while it is open. */}

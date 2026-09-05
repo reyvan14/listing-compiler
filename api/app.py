@@ -1127,6 +1127,12 @@ async def feedback_import(file: UploadFile = File(...)):
     return {"code": 0, "data": {"import": record}}
 
 
+@app.get("/api/feedback/promotions")
+def feedback_promotions():
+    """The import → signal → candidate chain, for auditing where a change began."""
+    return {"code": 0, "data": {"promotions": feedback.promotions()}}
+
+
 @app.get("/api/feedback/imports")
 def feedback_imports():
     return {"code": 0, "data": {"imports": feedback.list_imports()}}
@@ -1164,6 +1170,8 @@ class PromoteSignalBody(BaseModel):
     signal_index: int
     operator: str = ""
     content: RevisionContent
+    #: Client-supplied so a retry produces one candidate, not several.
+    idempotency_key: str = ""
 
 
 @app.post("/api/feedback/imports/{import_id}/promote")
@@ -1175,6 +1183,7 @@ def feedback_promote(import_id: str, body: PromoteSignalBody):
             body.signal_index,
             operator=body.operator,
             content=body.content.model_dump(),
+            idempotency_key=body.idempotency_key,
         )
     except feedback.FeedbackError as exc:
         return _feedback_error(exc)

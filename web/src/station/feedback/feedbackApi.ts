@@ -246,3 +246,61 @@ export async function createExperiment(
   });
   return data.experiment;
 }
+
+export type PromoteResult = {
+  signal: Signal;
+  revision: {
+    revision_id: string;
+    state: string;
+    platform: string;
+    content: { title: string; fields: { label: string; value: string }[] };
+  };
+  baseline_revision_id: string;
+  forked: boolean;
+  provenance: {
+    import_id: string;
+    signal_index: number;
+    signal: string;
+    baseline_revision_id: string;
+    candidate_revision_id: string;
+    supporting_rows: number[];
+    operator: string;
+    at: string;
+  };
+  note: string;
+  replayed: boolean;
+};
+
+/**
+ * Turn one signal into a candidate revision.
+ *
+ * `idempotencyKey` is what stops a double click from leaving a pile of
+ * near-identical drafts: the backend replays the first candidate instead of
+ * forking another one.
+ */
+export function promoteSignal(
+  importId: string,
+  signalIndex: number,
+  operator: string,
+  content: { title: string; fields: { label: string; value: string }[] },
+  idempotencyKey: string,
+  productId = 'default-product',
+): Promise<PromoteResult> {
+  return request(`/api/feedback/imports/${importId}/promote`, productId, {
+    method: 'POST',
+    body: JSON.stringify({
+      signal_index: signalIndex,
+      operator,
+      content,
+      idempotency_key: idempotencyKey,
+    }),
+  });
+}
+
+/** The baseline revision a candidate would fork from. */
+export function fetchRevisionContent(
+  revisionId: string,
+  productId = 'default-product',
+): Promise<{ revision: { revision_id: string; content: { title: string; fields: { label: string; value: string }[] } } }> {
+  return request(`/api/review/revisions/${revisionId}`, productId);
+}

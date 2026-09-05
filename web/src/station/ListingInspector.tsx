@@ -128,8 +128,10 @@ export function ListingInspector({ editor }: { editor: Editor }) {
   // Opening from a node selects that platform; reopening resets to the first
   // tab so the reader always lands on the listing content.
   useEffect(() => {
-    if (open) setTab('content')
-  }, [open, state.platform === null])
+    // Landing on a specific revision means somebody linked to it for review, so
+    // the reader should arrive on the review tab rather than the content tab.
+    if (open) setTab(state.focusRevisionId ? 'review' : 'content')
+  }, [open, state.platform === null, state.focusRevisionId])
 
   // Focus: remember what had it, move into the dialog, restore on close.
   useEffect(() => {
@@ -248,7 +250,14 @@ export function ListingInspector({ editor }: { editor: Editor }) {
 
         <div className={styles.content} data-testid="inspector-content" data-tab={tab}>
           {tab === 'content' && <ContentTab node={node} />}
-          {tab === 'review' && <ReviewTab node={node} sku={sku} productId={productId} />}
+          {tab === 'review' && (
+            <ReviewTab
+              node={node}
+              sku={sku}
+              productId={productId}
+              focusRevisionId={state.focusRevisionId}
+            />
+          )}
           {tab === 'compliance' && <ComplianceTab node={node} gate={gate} productId={productId} />}
           {tab === 'evidence' && (
             <EvidenceTab node={node} gate={gate} productId={productId} onLedgerChange={reloadGate} />
