@@ -125,7 +125,7 @@ test('a state-changing action is labelled and reports its real result', async ({
   await expect(action.getByTestId('agent-action-result')).toContainText('blocked');
 });
 
-test('a paid action demands its own confirmation and can be declined', async ({
+test('a state-writing action demands its own confirmation and can be declined', async ({
   page,
 }, testInfo) => {
   await waitForStation(page);
@@ -135,7 +135,10 @@ test('a paid action demands its own confirmation and can be declined', async ({
 
   const action = page.getByTestId('agent-action').first();
   await expect(action).toBeVisible({ timeout: 20_000 });
-  await expect(action.getByTestId('agent-action-paid')).toBeVisible();
+  // It calls no model, so it must not be dressed up as costing money — but it
+  // writes a record, so it still asks a second time.
+  await expect(action.getByTestId('agent-action-paid')).toHaveCount(0);
+  await expect(action).toContainText('会改动状态');
   await expect(action).toContainText('需二次确认');
 
   await page.getByTestId('plan-approve').click();
@@ -144,7 +147,8 @@ test('a paid action demands its own confirmation and can be declined', async ({
   await page.getByTestId('agent-action-request').click();
   const confirm = page.getByTestId('agent-action-confirm');
   await expect(confirm).toBeVisible();
-  await expect(confirm).toContainText('费用');
+  await expect(confirm).toContainText('不调用模型');
+  await expect(confirm).toContainText('已批准内容不会被改写');
   await page.screenshot({ path: `${SHOTS}/${tag(testInfo)}-agent-action-03-confirm.png` });
 
   // declining runs nothing

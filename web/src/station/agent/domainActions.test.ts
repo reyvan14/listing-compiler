@@ -36,8 +36,14 @@ describe('the allow-list', () => {
   it('marks the consequential actions as needing their own confirmation', () => {
     expect(ACTION_SPECS.export_release_package.requiresConfirmation).toBe(true);
     expect(ACTION_SPECS.build_migration_candidate.requiresConfirmation).toBe(true);
-    expect(ACTION_SPECS.build_migration_candidate.costsMoney).toBe(true);
     expect(ACTION_SPECS.validate_listing.requiresConfirmation).toBe(false);
+  });
+
+  it('claims a cost only where one is real', () => {
+    // Nothing in the current catalogue calls a paid provider. The migration
+    // builder used to say it might; it runs deterministic rule arithmetic.
+    expect(Object.values(ACTION_SPECS).filter(s => s.costsMoney)).toEqual([]);
+    expect(ACTION_SPECS.build_migration_candidate.confirmPrompt).toContain('不调用模型');
   });
 
   it('states in the export prompt that nothing is published', () => {

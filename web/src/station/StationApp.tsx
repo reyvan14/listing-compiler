@@ -11,6 +11,7 @@ import {
   TldrawOptions,
   TldrawUiToastsProvider,
   useEditor,
+  useValue,
 } from 'tldraw';
 import { keepConnectionsAtBottom } from '@/pipeline/connection/keepConnectionsAtBottom';
 import { disableTransparency } from '@/pipeline/disableTransparency';
@@ -46,6 +47,7 @@ import { useProjectPersistence } from './project/useProjectPersistence';
 import { StationAgent } from './StationAgent';
 import { StationSidebar } from './StationSidebar';
 import { skuProductId } from './useEvidenceGate';
+import { migrationFocusState } from '@/pipeline/nodes/types/migrationPanel';
 import styles from './nodes.module.scss';
 
 const tldrawOptions: Partial<TldrawOptions> = {
@@ -175,6 +177,18 @@ export function StationApp() {
     () => typeof window !== 'undefined' && window.innerWidth < DESKTOP_MIN_WIDTH,
   );
   const rulesBtnRef = useRef<HTMLButtonElement>(null);
+
+  // An Agent action that built a migration candidate asks for it to be shown.
+  // The nonce, not the id, is the trigger: dismissing a candidate and asking
+  // for the same one again must reopen the panel.
+  const migrationFocusNonce = useValue(
+    'migration focus nonce',
+    () => (editor ? migrationFocusState.get(editor).nonce : 0),
+    [editor],
+  );
+  useEffect(() => {
+    if (migrationFocusNonce > 0) setMigrationOpen(true);
+  }, [migrationFocusNonce]);
 
   const onScreen = useCallback((next: StationScreen) => {
     setScreen(next);

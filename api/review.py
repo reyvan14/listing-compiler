@@ -727,6 +727,55 @@ def request_changes(revision_id: str, *, operator: str, reason: str) -> dict[str
         return {"revision": dict(revision), "approval": dict(approval)}
 
 
+def withdraw_draft(revision_id: str, *, operator: str, reason: str) -> dict[str, Any]:
+    """Retire a draft that was created and then decided against.
+
+    Used when an automated workflow — a migration apply, say — forked drafts
+    that the operator has now undone. Only a revision nobody has approved can be
+    withdrawn, and only a leaf: retiring a draft that already has children would
+    orphan work built on top of it. The record is kept and marked
+    ``rolled_back``, never deleted, so the history still shows the attempt.
+    """
+    operator = _clean_text(operator, MAX_OPERATOR_CHARS)
+    reason = _clean_text(reason, MAX_REASON_CHARS)
+    if not operator:
+        raise ReviewError("missing_operator", "请填写操作人。")
+    if not reason:
+        raise ReviewError("missing_reason", "请说明撤回原因。")
+
+    with _LOCK:
+        ledger = read_ledger()
+        revision = _require(ledger, revision_id)
+        if revision["state"] not in EDITABLE_IN_PLACE:
+            raise ReviewError(
+                "not_withdrawable",
+                "只有尚未通过审批的草稿可以撤回。",
+                status=409,
+            )
+        children = [
+            r for r in ledger["revisions"].values()
+            if r.get("parent_revision_id") == revision_id
+        ]
+        if children:
+            raise ReviewError(
+                "has_descendants",
+                f"该修订已派生出 {len(children)} 个后续版本，无法撤回。",
+                status=409,
+            )
+
+        revision["state"] = ROLLED_BACK
+        revision["updated_at"] = _now()
+        _audit(
+            ledger,
+            "draft_withdrawn",
+            revision_id=revision_id,
+            operator=operator,
+            reason=reason,
+        )
+        _write_ledger(ledger)
+        return dict(revision)
+
+
 def rollback_to(revision_id: str, *, operator: str, reason: str) -> dict[str, Any]:
     """Restore an earlier revision's exact content as a new approved revision.
 

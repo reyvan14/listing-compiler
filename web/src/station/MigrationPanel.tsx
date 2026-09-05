@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import type { Editor } from 'tldraw';
+import { useValue, type Editor } from 'tldraw';
+import {
+  clearMigrationFocus,
+  migrationFocusState,
+} from '@/pipeline/nodes/types/migrationPanel';
 import { focusShape } from '@/pipeline/nodes/types/skuStation';
 import { toSafeMessage } from './apiClient';
 import {
@@ -33,6 +37,8 @@ import {
 import { downloadReport, serializeReport } from './migration/report';
 import { diffFacts } from './migration/skuFacts';
 import { PolicyWatchSection } from './policywatch/PolicyWatchSection';
+import { StoredCandidateSection } from './migration/StoredCandidateSection';
+import { skuProductId } from './useEvidenceGate';
 import { patchKey, type CandidatePatch, type ImpactRow } from './migration/types';
 import styles from './nodes.module.scss';
 
@@ -57,6 +63,13 @@ export function MigrationPanel({ editor, onClose }: { editor: Editor; onClose: (
     initMigrationState(collectArtifacts(editor)),
   );
   const [trigger, setTrigger] = useState<Trigger>(null);
+  // A candidate an Agent action built and stored. Read from the editor atom so
+  // opening it neither touches a shape nor moves the camera.
+  const focusCandidateId = useValue(
+    'migration focus',
+    () => migrationFocusState.get(editor).candidateId,
+    [editor],
+  );
   const [policyDiff, setPolicyDiff] = useState<PolicyDiff | null>(null);
   const [busy, setBusy] = useState<Busy>('');
   const [error, setError] = useState('');
@@ -302,7 +315,15 @@ export function MigrationPanel({ editor, onClose }: { editor: Editor; onClose: (
           </p>
         )}
 
-        {!trigger && (
+        {focusCandidateId && (
+          <StoredCandidateSection
+            candidateId={focusCandidateId}
+            productId={skuProductId(editor)}
+            onDismiss={() => clearMigrationFocus(editor)}
+          />
+        )}
+
+        {!trigger && !focusCandidateId && (
           <section className={styles.migSection}>
             <div className={styles.menuTitle}>选择一个漂移场景（本地演示数据）</div>
             <div className={styles.migActions}>

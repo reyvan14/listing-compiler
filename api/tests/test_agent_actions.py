@@ -233,10 +233,27 @@ def test_a_confirmed_export_actually_runs():
     assert run["result"]["published"] is False
 
 
-def test_a_paid_action_is_flagged_as_costing_money():
+def test_a_consequential_action_confirms_before_it_runs():
     spec = actions.ACTIONS["build_migration_candidate"]
     assert spec.requires_confirmation is True
-    assert spec.costs_money is True
+    assert spec.read_only is False
+    # It runs deterministic rule arithmetic and calls no model, so it must not
+    # claim to cost money. No action in the current catalogue does.
+    assert spec.costs_money is False
+    assert [name for name, s in actions.ACTIONS.items() if s.costs_money] == []
+
+
+def test_the_costs_money_flag_reaches_the_confirmation_prompt():
+    """The flag is what the UI warns on, so its wiring is tested on its own."""
+    paid = actions.ActionSpec(
+        "example_paid",
+        label="示例",
+        summary="示例",
+        params={},
+        requires_confirmation=True,
+        costs_money=True,
+    )
+    assert paid.as_dict()["costs_money"] is True
 
 
 # --------------------------------------------------------------------------- #
@@ -339,14 +356,18 @@ def test_an_action_whose_subsystem_is_absent_reports_unavailable_not_success(mon
     assert run["error"] == "capability_unavailable"
 
 
-def test_the_migration_candidate_action_does_not_claim_to_have_built_a_patch():
-    """It may cost money, so it confirms first — and then admits it built nothing."""
+def test_the_migration_candidate_action_confirms_and_then_reports_what_it_found():
+    """With nothing approved to migrate, it names the blocker instead of a patch.
+
+    The candidate-building path itself is covered in test_migration_candidates.py;
+    what matters here is that the action gate holds and the reply is honest.
+    """
     params = {"platform": "amazon"}
     unconfirmed = actions.execute(
         {"action": "build_migration_candidate", "params": params}, idempotency_key="mig"
     )
     assert unconfirmed["state"] == actions.NEEDS_CONFIRMATION
-    assert unconfirmed["costs_money"] is True
+    assert unconfirmed["costs_money"] is False
 
     run = actions.execute(
         {"action": "build_migration_candidate", "params": params},
@@ -356,7 +377,7 @@ def test_the_migration_candidate_action_does_not_claim_to_have_built_a_patch():
 
     assert run["state"] == actions.OK
     assert run["result"]["built"] is False
-    assert run["result"]["handoff"] == "migration_panel"
+    assert [b["code"] for b in run["result"]["blockers"]] == ["no_approved_revision"]
 
 
 def test_free_text_parameters_are_accepted_but_neutralised():

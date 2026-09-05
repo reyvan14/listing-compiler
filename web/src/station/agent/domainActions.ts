@@ -109,13 +109,17 @@ export const ACTION_SPECS: Record<DomainActionName, ActionSpec> = {
   build_migration_candidate: {
     action: 'build_migration_candidate',
     label: '生成迁移候选补丁',
-    summary: '为受影响字段生成候选补丁供人工审阅。当前产物不被改写。',
+    summary:
+      '对该平台已批准的修订运行确定性迁移分析，把结果存成可审阅的候选。只生成候选，不改动任何已批准内容。',
     params: { platform: 'id', fields: 'idList' },
     required: ['platform'],
     readOnly: false,
     requiresConfirmation: true,
-    costsMoney: true,
-    confirmPrompt: '生成迁移候选补丁可能调用模型并产生费用。当前已批准内容不会被改写。确认继续？',
+    // Deterministic rule arithmetic; no model call, so no cost to warn about.
+    // Still confirmed, because it writes a stored record.
+    costsMoney: false,
+    confirmPrompt:
+      '将对该平台所有已批准修订运行迁移分析，并保存一份候选补丁记录。全部为确定性规则计算，不调用模型；已批准内容不会被改写，应用补丁需要另行确认。确认继续？',
   },
   open_evidence_source: {
     action: 'open_evidence_source',

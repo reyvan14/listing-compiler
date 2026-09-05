@@ -70,12 +70,15 @@ export function AgentActionCard({
   busy,
   planApproved,
   onExecute,
+  onOpenResult,
 }: {
   action: AgentPlanAction;
   run: ActionRun | null;
   busy: boolean;
   planApproved: boolean;
   onExecute: (confirmed: boolean) => void;
+  /** Hand-off into the panel that owns whatever the action produced. */
+  onOpenResult?: (run: ActionRun) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const settled = run?.state === 'ok';
@@ -138,6 +141,19 @@ export function AgentActionCard({
         </p>
       )}
 
+      {settled && openLabel(run) && onOpenResult && (
+        <div className={styles.actions}>
+          <button
+            type="button"
+            className={styles.primary}
+            data-testid="agent-action-open"
+            onClick={() => onOpenResult(run!)}
+          >
+            {openLabel(run)}
+          </button>
+        </div>
+      )}
+
       {!settled && planApproved && (
         <div className={styles.actions}>
           {!needsSecond ? (
@@ -191,6 +207,20 @@ export function AgentActionCard({
   );
 }
 
+/**
+ * The button that takes the operator to what the action actually produced.
+ *
+ * Only offered when the payload carries a real id — an action that reported a
+ * blocker has nothing to open, and offering a dead button would imply it did.
+ */
+function openLabel(run: ActionRun | null): string {
+  const result = (run?.result ?? {}) as Record<string, unknown>;
+  if (run?.action === 'build_migration_candidate' && result.built && result.candidate_id) {
+    return '在迁移面板中审阅候选';
+  }
+  return '';
+}
+
 /** One line about what really came back. Never a claim beyond the payload. */
 function summarise(run: ActionRun): string {
   const result = (run.result ?? {}) as Record<string, unknown>;
@@ -215,9 +245,15 @@ function summarise(run: ActionRun): string {
     return `新增 ${added.length} 条 · 变更 ${changed.length} 条`;
   }
   if (run.action === 'build_migration_candidate') {
-    return result.candidate_id
-      ? `候选 ${result.candidate_id}`
-      : String(result.note ?? '未生成候选');
+    if (!result.built) {
+      const blockers = (result.blockers as { detail?: string }[] | undefined) ?? [];
+      return blockers.length
+        ? `未生成候选：${blockers.map(b => b.detail).join('；')}`
+        : String(result.note ?? '未生成候选');
+    }
+    const revisions = (result.affected_revisions as string[] | undefined) ?? [];
+    const fields = (result.affected_fields as string[] | undefined) ?? [];
+    return `候选 ${result.candidate_id} · ${result.patch_count} 项补丁 · ${revisions.length} 条修订（${fields.join('、')}）· 尚未应用`;
   }
   if (run.action === 'analyze_feedback') {
     const signals = (result.signals as unknown[] | undefined) ?? [];

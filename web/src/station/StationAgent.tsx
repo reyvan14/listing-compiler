@@ -5,6 +5,8 @@ import styles from './stationChrome.module.scss'
 import { executionState } from '@/pipeline/execution/executionState'
 import { findSkuShape, type SkuListingNode } from '@/pipeline/nodes/types/skuStation'
 import { AgentPlanCard } from './agent/AgentPlanCard'
+import { openMigrationCandidate } from '@/pipeline/nodes/types/migrationPanel'
+import { skuProductId } from './useEvidenceGate'
 import { actionErrorMessage, runAction, type ActionRun } from './agent/domainActions'
 import { AgentPreviewLayer } from './agent/AgentPreviewLayer'
 import { AgentTrace } from './agent/AgentTrace'
@@ -120,19 +122,7 @@ export function StationAgent({
 
   // The scope the evidence, review and media ledgers are keyed by, so a domain
   // action reads the same records the rest of the product is showing.
-  const productId = useValue(
-    'agent product id',
-    () => {
-      if (!editor) return 'default-product'
-      const sku = findSkuShape(editor)
-      if (!sku) return 'default-product'
-      const node = sku.props.node
-      const name =
-        node.type === 'sku_listing' ? (node as SkuListingNode).productName.trim().toLowerCase() : ''
-      return `${sku.id}|${name}`
-    },
-    [editor],
-  )
+  const productId = useValue('agent product id', () => skuProductId(editor), [editor])
 
   const planSeq = useRef(0)
   const turnSeq = useRef(0)
@@ -463,6 +453,23 @@ export function StationAgent({
    * the backend replays the first outcome instead of doing the work again. The
    * in-flight guard stops a double click from even reaching the network.
    */
+  /**
+   * Hand the operator to the panel that owns what an action produced.
+   *
+   * The Agent surface deliberately does not grow its own reviewer: a migration
+   * candidate is reviewed in the migration panel, where the apply and rollback
+   * gates already live.
+   */
+  const openActionResult = useCallback(
+    (run: ActionRun) => {
+      const result = (run.result ?? {}) as Record<string, unknown>
+      if (editor && run.action === 'build_migration_candidate' && result.candidate_id) {
+        openMigrationCandidate(editor, String(result.candidate_id))
+      }
+    },
+    [editor],
+  )
+
   const executeAction = useCallback(
     async (planId: string, index: number, confirmed: boolean) => {
       const record = plans[planId]
@@ -640,6 +647,7 @@ export function StationAgent({
                   onRunAction={(index, confirmed) =>
                     void executeAction(item.planId, index, confirmed)
                   }
+                  onOpenActionResult={openActionResult}
                 />
               )
             }

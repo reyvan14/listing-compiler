@@ -31,6 +31,7 @@ import localization
 import mediaassets
 import passport
 import migration
+import migration_candidates
 import policy
 import policywatch
 import storyboard
@@ -84,6 +85,11 @@ async def scope_evidence_ledger(request: Request, call_next):
             "/api/agent/actions",
             "/api/feedback",
             "/api/storyboard",
+            # Stored migration candidates are built from scoped review
+            # revisions and write drafts back into them, so they belong to the
+            # same partition. The stateless /api/migration/* helpers do not:
+            # they read nothing but the request body.
+            "/api/migration/candidates",
         )
     ):
         return await call_next(request)
@@ -1781,6 +1787,105 @@ def migration_rollback(body: RollbackBody):
     except ValueError as exc:
         return _bad(str(exc), "bad_snapshot")
     return {"code": 0, "data": data}
+
+
+# --------------------------------------------------------------------------- #
+# Stored migration candidates. The endpoints above are stateless helpers the   #
+# panel drives with in-memory artifacts; these read and write the candidates   #
+# an Agent action produced, which have to survive the round trip.              #
+# --------------------------------------------------------------------------- #
+
+
+def _candidate_error(exc: "migration_candidates.CandidateError") -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.http_status,
+        content={"code": 1, "error": exc.code, "message": exc.safe_message},
+    )
+
+
+@app.get("/api/migration/candidates")
+def migration_candidates_list():
+    return {"code": 0, "data": {"candidates": migration_candidates.listing()}}
+
+
+@app.get("/api/migration/candidates/{candidate_id}")
+def migration_candidate_get(candidate_id: str):
+    try:
+        record = migration_candidates.get(candidate_id)
+    except migration_candidates.CandidateError as exc:
+        return _candidate_error(exc)
+    # The token is derived, never stored: it binds a confirmation to the exact
+    # patch set the operator is looking at right now.
+    patch_ids = [str(p.get("patch_id")) for p in record.get("patches") or []]
+    return {
+        "code": 0,
+        "data": {
+            "candidate": record,
+            "confirmation_token": migration_candidates.confirmation_token(
+                record["candidate_id"], patch_ids
+            ),
+        },
+    }
+
+
+class CandidateTokenBody(BaseModel):
+    patch_ids: list[str] = Field(default_factory=list)
+
+
+@app.post("/api/migration/candidates/{candidate_id}/confirmation")
+def migration_candidate_confirmation(candidate_id: str, body: CandidateTokenBody):
+    """The token for one specific subset of patches, so a partial apply confirms
+    for exactly what it applies."""
+    try:
+        migration_candidates.get(candidate_id)
+    except migration_candidates.CandidateError as exc:
+        return _candidate_error(exc)
+    return {
+        "code": 0,
+        "data": {
+            "confirmation_token": migration_candidates.confirmation_token(
+                candidate_id, [str(p) for p in body.patch_ids]
+            )
+        },
+    }
+
+
+class CandidateApplyBody(BaseModel):
+    patch_ids: list[str] = Field(default_factory=list)
+    operator: str = ""
+    reason: str = ""
+    confirm_token: str = ""
+
+
+@app.post("/api/migration/candidates/{candidate_id}/apply")
+def migration_candidate_apply(candidate_id: str, body: CandidateApplyBody):
+    try:
+        record = migration_candidates.apply(
+            candidate_id,
+            patch_ids=body.patch_ids,
+            operator=body.operator,
+            reason=body.reason,
+            confirm_token=body.confirm_token,
+        )
+    except migration_candidates.CandidateError as exc:
+        return _candidate_error(exc)
+    return {"code": 0, "data": {"candidate": record}}
+
+
+class CandidateRollbackBody(BaseModel):
+    operator: str = ""
+    reason: str = ""
+
+
+@app.post("/api/migration/candidates/{candidate_id}/rollback")
+def migration_candidate_rollback(candidate_id: str, body: CandidateRollbackBody):
+    try:
+        record = migration_candidates.rollback(
+            candidate_id, operator=body.operator, reason=body.reason
+        )
+    except migration_candidates.CandidateError as exc:
+        return _candidate_error(exc)
+    return {"code": 0, "data": {"candidate": record}}
 
 
 class ReportBody(BaseModel):

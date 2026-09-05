@@ -47,6 +47,7 @@ export type AgentPlanCardProps = {
   actionRuns?: Record<number, ActionRun>;
   /** Execute one domain action. `confirmed` carries the second confirmation. */
   onRunAction?: (index: number, confirmed: boolean) => void;
+  onOpenActionResult?: (run: ActionRun) => void;
   /** Approve a plan that has no canvas operations to apply. */
   onApprove?: () => void;
 };
@@ -63,6 +64,7 @@ export function AgentPlanCard({
   onCancel,
   actionRuns = {},
   onRunAction,
+  onOpenActionResult,
   onApprove,
 }: AgentPlanCardProps) {
   const [confirmingRun, setConfirmingRun] = useState(false);
@@ -212,6 +214,7 @@ export function AgentPlanCard({
                 busy={busy}
                 planApproved={planApproved}
                 onExecute={confirmed => onRunAction?.(index, confirmed)}
+                onOpenResult={onOpenActionResult}
               />
             ))}
           </ul>

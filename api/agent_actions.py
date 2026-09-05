@@ -162,13 +162,19 @@ ACTIONS: dict[str, ActionSpec] = {
     "build_migration_candidate": ActionSpec(
         "build_migration_candidate",
         label="生成迁移候选补丁",
-        summary="为受影响字段生成候选补丁供人工审阅。当前产物不被改写。",
+        summary=(
+            "对该平台已批准的修订运行确定性迁移分析，把结果存成可审阅的候选。"
+            "只生成候选，不改动任何已批准内容。"
+        ),
         params={"platform": str, "fields": list},
         required=("platform",),
         read_only=False,
         requires_confirmation=True,
-        confirm_prompt="生成迁移候选补丁可能调用模型并产生费用。当前已批准内容不会被改写。确认继续？",
-        costs_money=True,
+        confirm_prompt=(
+            "将对该平台所有已批准修订运行迁移分析，并保存一份候选补丁记录。"
+            "全部为确定性规则计算，不调用模型；已批准内容不会被改写，"
+            "应用补丁需要另行确认。确认继续？"
+        ),
     ),
     "open_evidence_source": ActionSpec(
         "open_evidence_source",
@@ -495,21 +501,49 @@ def _h_analyze_policy_impact(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _h_build_migration_candidate(params: dict[str, Any]) -> dict[str, Any]:
-    """Deliberately does not call a model here.
+def _h_build_migration_candidate(
+    params: dict[str, Any], *, idempotency_key: str = ""
+) -> dict[str, Any]:
+    """Run the real migration engine and store the candidate it produces.
 
-    The migration engine's candidate builder is an async, request-shaped API.
-    Rather than half-invoke it, this action reports what it would target and
-    hands the operator to the existing migration panel, which already has the
-    preview-and-approve flow. Claiming to have built a patch we did not build
-    would be exactly the kind of fake progress the spec forbids.
+    This used to report what it *would* target and send the operator to the
+    panel to do the work by hand. It now does the work: the same deterministic
+    analysis the panel runs, over the platform's approved revisions, written
+    down under a candidate id the UI can open.
+
+    Nothing is applied. Building a candidate and applying one are two decisions,
+    and the second needs its own confirmation bound to the exact patches.
     """
+    import migration_candidates
+
+    record = migration_candidates.build(
+        params["platform"],
+        fields=params.get("fields", []),
+        source_action="build_migration_candidate",
+        idempotency_key=idempotency_key,
+    )
+    if record["state"] == "blocked":
+        return {
+            "candidate_id": record["candidate_id"],
+            "platform": record["platform"],
+            "built": False,
+            "blockers": record["blockers"],
+            "note": "前置条件不满足，未生成任何补丁。原因见 blockers。",
+        }
     return {
-        "platform": params["platform"],
-        "fields": params.get("fields", []),
-        "built": False,
+        "candidate_id": record["candidate_id"],
+        "platform": record["platform"],
+        "built": True,
+        "base_policy_version": record["base_policy_version"],
+        "candidate_policy_version": record["candidate_policy_version"],
+        "patch_count": len(record["patches"]),
+        "affected_revisions": sorted({p["artifact_id"] for p in record["patches"]}),
+        "affected_fields": sorted({p["field"] for p in record["patches"]}),
+        "needs_human_review": len(record.get("human_review") or []),
+        "warnings": record["warnings"],
+        "applied": False,
         "handoff": "migration_panel",
-        "note": "已定位到受影响平台与字段；候选补丁请在「规则变更 / 迁移」面板中生成并逐项批准。",
+        "note": "候选已生成并保存；应用前需在迁移面板逐项审阅并单独确认。",
     }
 
 
@@ -579,6 +613,11 @@ HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
 # --------------------------------------------------------------------------- #
 
 
+#: Handlers that keep their own durable record and therefore need the caller's
+#: idempotency key, not just the parameters.
+_KEYED_HANDLERS = frozenset({"build_migration_candidate"})
+
+
 def execute(
     raw_action: Any,
     *,
@@ -623,7 +662,15 @@ def execute(
 
     started = _now()
     try:
-        result = HANDLERS[spec.name](params)
+        handler = HANDLERS[spec.name]
+        # A handler that stores something of its own needs the same key, so its
+        # record and this run's record cannot disagree about how many times the
+        # work happened.
+        result = (
+            handler(params, idempotency_key=key)
+            if spec.name in _KEYED_HANDLERS
+            else handler(params)
+        )
         record = {
             "action": spec.name,
             "params": params,
