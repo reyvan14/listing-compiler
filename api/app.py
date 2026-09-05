@@ -24,6 +24,7 @@ import agent_actions
 import agent_plan
 import evidence
 import factsregistry
+import feedback
 import imagecheck
 import intake
 import localization
@@ -80,6 +81,7 @@ async def scope_evidence_ledger(request: Request, call_next):
             "/api/intake",
             "/api/policy/watch",
             "/api/agent/actions",
+            "/api/feedback",
         )
     ):
         return await call_next(request)
@@ -1087,6 +1089,154 @@ def agent_action_run(body: RunActionBody):
 @app.get("/api/agent/actions/history")
 def agent_action_history(limit: int = Query(50, ge=1, le=200)):
     return {"code": 0, "data": {"runs": agent_actions.history(limit)}}
+
+
+# --------------------------------------------------------------------------- #
+# Feedback Lab. Deterministic statistics over imported spreadsheet rows.        #
+# Signals become candidate revisions through the existing review lifecycle;     #
+# nothing here edits a live listing or claims a causal effect.                  #
+# --------------------------------------------------------------------------- #
+
+
+def _feedback_error(exc: feedback.FeedbackError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.http_status,
+        content={"code": 1, "error": exc.code, "message": exc.safe_message},
+    )
+
+
+@app.get("/api/feedback/template")
+def feedback_template():
+    """Downloadable import template."""
+    return Response(
+        content=feedback.TEMPLATE_CSV,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="feedback-template.csv"'},
+    )
+
+
+@app.post("/api/feedback/import")
+async def feedback_import(file: UploadFile = File(...)):
+    data = await file.read(feedback.MAX_IMPORT_BYTES + 1)
+    try:
+        record = feedback.create_import(data, filename=file.filename or "")
+    except feedback.FeedbackError as exc:
+        return _feedback_error(exc)
+    return {"code": 0, "data": {"import": record}}
+
+
+@app.get("/api/feedback/imports")
+def feedback_imports():
+    return {"code": 0, "data": {"imports": feedback.list_imports()}}
+
+
+@app.get("/api/feedback/imports/{import_id}/analysis")
+def feedback_analysis(import_id: str):
+    try:
+        return {"code": 0, "data": feedback.analyze_import(import_id)}
+    except feedback.FeedbackError as exc:
+        return _feedback_error(exc)
+
+
+@app.get("/api/feedback/imports/{import_id}/compare")
+def feedback_compare(
+    import_id: str,
+    mode: Literal["revision", "platform", "period"] = Query("revision"),
+    left: str = Query(""),
+    right: str = Query(""),
+    split: str = Query(""),
+):
+    try:
+        if mode == "revision":
+            data = feedback.compare_revisions(import_id, left, right)
+        elif mode == "platform":
+            data = feedback.compare_platforms(import_id, left, right)
+        else:
+            data = feedback.compare_periods(import_id, split)
+    except feedback.FeedbackError as exc:
+        return _feedback_error(exc)
+    return {"code": 0, "data": data}
+
+
+class PromoteSignalBody(BaseModel):
+    signal_index: int
+    operator: str = ""
+    content: RevisionContent
+
+
+@app.post("/api/feedback/imports/{import_id}/promote")
+def feedback_promote(import_id: str, body: PromoteSignalBody):
+    """Turn a signal into a candidate revision. Never edits an approved one."""
+    try:
+        result = feedback.promote_signal(
+            import_id,
+            body.signal_index,
+            operator=body.operator,
+            content=body.content.model_dump(),
+        )
+    except feedback.FeedbackError as exc:
+        return _feedback_error(exc)
+    return {"code": 0, "data": result}
+
+
+class ExperimentBody(BaseModel):
+    hypothesis: str
+    baseline_revision_id: str
+    candidate_revision_id: str = ""
+    changed_fields: list[str] = Field(default_factory=list)
+    start_date: str = ""
+    end_date: str = ""
+    primary_metric: str = "cvr"
+    guardrail_metrics: list[str] = Field(default_factory=list)
+
+
+@app.post("/api/feedback/experiments")
+def feedback_create_experiment(body: ExperimentBody):
+    try:
+        experiment = feedback.create_experiment(
+            hypothesis=body.hypothesis,
+            baseline_revision_id=body.baseline_revision_id,
+            candidate_revision_id=body.candidate_revision_id,
+            changed_fields=body.changed_fields,
+            start_date=body.start_date,
+            end_date=body.end_date,
+            primary_metric=body.primary_metric,
+            guardrail_metrics=body.guardrail_metrics or None,
+        )
+    except feedback.FeedbackError as exc:
+        return _feedback_error(exc)
+    return {"code": 0, "data": {"experiment": experiment}}
+
+
+@app.get("/api/feedback/experiments")
+def feedback_experiments():
+    return {"code": 0, "data": {"experiments": feedback.list_experiments()}}
+
+
+class ExperimentStateBody(BaseModel):
+    state: Literal["draft", "running", "stopped", "concluded"]
+
+
+@app.post("/api/feedback/experiments/{experiment_id}/state")
+def feedback_experiment_state(experiment_id: str, body: ExperimentStateBody):
+    try:
+        experiment = feedback.set_experiment_state(experiment_id, body.state)
+    except feedback.FeedbackError as exc:
+        return _feedback_error(exc)
+    return {"code": 0, "data": {"experiment": experiment}}
+
+
+class ConcludeBody(BaseModel):
+    import_id: str
+
+
+@app.post("/api/feedback/experiments/{experiment_id}/conclude")
+def feedback_conclude(experiment_id: str, body: ConcludeBody):
+    try:
+        experiment = feedback.conclude_experiment(experiment_id, body.import_id)
+    except feedback.FeedbackError as exc:
+        return _feedback_error(exc)
+    return {"code": 0, "data": {"experiment": experiment}}
 
 
 # --------------------------------------------------------------------------- #

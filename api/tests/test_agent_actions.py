@@ -455,3 +455,46 @@ def test_the_run_endpoint_replays_a_duplicate_request():
 
     assert first["replayed"] is False
     assert second["replayed"] is True
+
+
+# --------------------------------------------------------------------------- #
+# Wired up once the feedback subsystem exists                                  #
+# --------------------------------------------------------------------------- #
+
+
+def test_analyze_feedback_runs_for_real_now_that_the_subsystem_exists():
+    import feedback
+
+    header = ",".join(feedback.COLUMNS)
+    csv = (
+        f"{header}\n"
+        "AERO-350,amazon,rev-0001,2026-08-01,2026-08-14,50000,200,40,10,300,1,,,\n"
+    ).encode()
+    record = feedback.create_import(csv)
+
+    run = actions.execute(
+        {"action": "analyze_feedback", "params": {"import_id": record["import_id"]}},
+        idempotency_key="af",
+    )
+
+    assert run["state"] == actions.OK
+    assert run["result"]["signals"]
+    assert run["result"]["live_integration"] is False
+
+
+def test_create_experiment_runs_and_records_the_hypothesis():
+    run = actions.execute(
+        {
+            "action": "create_experiment",
+            "params": {
+                "hypothesis": "把容量前置能提高点击率",
+                "baseline_revision_id": "rev-0001",
+                "candidate_revision_id": "rev-0002",
+            },
+        },
+        idempotency_key="ce",
+    )
+
+    assert run["state"] == actions.OK
+    assert run["result"]["state"] == "draft"
+    assert "容量" in run["result"]["hypothesis"]

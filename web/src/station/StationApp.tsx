@@ -38,6 +38,7 @@ import { fallbackRules, fetchRules, toSafeMessage, type RulesResult } from './ru
 import { ListingInspector } from './ListingInspector';
 import { MigrationPanel } from './MigrationPanel';
 import { PortfolioPanel } from './PortfolioPanel';
+import { FeedbackPanel } from './feedback/FeedbackPanel';
 import { PassportPanel } from './passport/PassportPanel';
 import { ProjectMenu } from './project/ProjectMenu';
 import { useProjectPersistence } from './project/useProjectPersistence';
@@ -160,6 +161,7 @@ export function StationApp() {
   const [migrationOpen, setMigrationOpen] = useState(false);
   const [portfolioOpen, setPortfolioOpen] = useState(false);
   const [passportOpen, setPassportOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [editor, setEditor] = useState<Editor | null>(null);
   const [source, setSource] = useState<ListingResultSource | null>(null);
@@ -343,6 +345,14 @@ export function StationApp() {
           >
             发布护照
           </button>
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            id="station-feedback"
+            onClick={() => setFeedbackOpen(true)}
+          >
+            反馈实验室
+          </button>
           {editor && (
             <ProjectMenu
               editor={editor}
@@ -395,6 +405,10 @@ export function StationApp() {
       {passportOpen && editor && (
         <PassportPanel editor={editor} onClose={() => setPassportOpen(false)} />
       )}
+
+      {/* Analytics live in their own panel: tables of numbers need columns, and
+          the canvas gets at most a concise candidate node. */}
+      {feedbackOpen && <FeedbackPanel onClose={() => setFeedbackOpen(false)} />}
 
       {/* Viewport-level listing detail. Reads the shapes, never writes them, so
           the canvas geometry and camera are untouched while it is open. */}

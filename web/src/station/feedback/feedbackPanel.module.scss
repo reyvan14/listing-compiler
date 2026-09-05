@@ -1,0 +1,382 @@
+/* 反馈实验室。与发布护照同一套抽屉形态与深色系。 */
+
+.drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483645;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(18, 17, 15, 0.52);
+}
+
+.drawer aside {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(820px, 100vw);
+  padding: 16px 18px 24px;
+  overflow-y: auto;
+  border-left: 1px solid #3a3327;
+  background: #1f1d18;
+  color: #e1ded8;
+  box-shadow: -24px 0 64px rgba(0, 0, 0, 0.5);
+}
+
+.drawer header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+
+  h2 {
+    margin: 4px 0 0;
+    font-size: 17px;
+    color: #f4f1ea;
+  }
+}
+
+.kicker {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #8d887c;
+}
+
+.ghost {
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px solid #4a4335;
+  border-radius: 7px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: #cfc9bd;
+  text-decoration: none;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.07);
+  }
+}
+
+.disclaimer {
+  padding: 8px 12px;
+  border: 1px solid #6b5a35;
+  border-radius: 8px;
+  background: rgba(107, 90, 53, 0.14);
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #ffce7a;
+
+  strong {
+    color: #f4f1ea;
+  }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+
+  button {
+    padding: 6px 12px;
+    border: 1px solid #4a4335;
+    border-radius: 7px;
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    color: #cfc9bd;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+  }
+
+  select {
+    padding: 6px 10px;
+    border: 1px solid #3a3327;
+    border-radius: 7px;
+    background: #191713;
+    font: inherit;
+    font-size: 12px;
+    color: #e1ded8;
+  }
+}
+
+.file {
+  display: none;
+}
+
+.error {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid #7a4433;
+  border-radius: 8px;
+  background: rgba(122, 68, 51, 0.18);
+  font-size: 12px;
+  color: #ff9c7a;
+}
+
+.notice {
+  margin: 0;
+  font-size: 12px;
+  color: #7ee0b0;
+}
+
+.muted {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: #8d887c;
+
+  code {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #a8a49b;
+  }
+}
+
+.warn {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: #ffce7a;
+}
+
+.section {
+  padding: 12px 14px;
+  border: 1px solid #352f25;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+
+  h3 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    color: #f4f1ea;
+  }
+}
+
+.problems {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #ff9c7a;
+}
+
+.metrics {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-size: 12px;
+
+  th,
+  td {
+    padding: 4px 8px;
+    border-bottom: 1px solid #352f25;
+    text-align: left;
+  }
+
+  th {
+    width: 90px;
+    font-weight: 400;
+    color: #8d887c;
+  }
+
+  td {
+    color: #e1ded8;
+  }
+}
+
+/* ---- 信号 -------------------------------------------------------------- */
+.signals,
+.experiments {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  > li {
+    padding: 8px 10px;
+    border: 1px solid #3a3327;
+    border-left-width: 3px;
+    border-radius: 7px;
+
+    &[data-confidence='high'] {
+      border-left-color: #ff7649;
+    }
+
+    &[data-confidence='medium'] {
+      border-left-color: #ffce7a;
+    }
+
+    &[data-confidence='low'] {
+      border-left-color: #6a6357;
+    }
+  }
+}
+
+.signalHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+
+  b {
+    color: #f4f1ea;
+  }
+
+  code {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 11px;
+    color: #a8a49b;
+  }
+}
+
+.confidence {
+  padding: 1px 8px;
+  border: 1px solid #4a4335;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #cfc9bd;
+
+  &[data-level='high'] {
+    color: #ff9c7a;
+    border-color: #7a4433;
+  }
+
+  &[data-level='medium'] {
+    color: #ffce7a;
+    border-color: #6b5a35;
+  }
+}
+
+.observed {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #e1ded8;
+}
+
+.proposal {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #cfc9bd;
+}
+
+.quotes {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: #a8a49b;
+}
+
+.causality {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #ffce7a;
+}
+
+/* ---- 对比 -------------------------------------------------------------- */
+.compareRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  button {
+    padding: 4px 10px;
+    border: 1px solid #4a4335;
+    border-radius: 6px;
+    background: transparent;
+    font: inherit;
+    font-size: 11px;
+    color: #cfc9bd;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.07);
+    }
+  }
+}
+
+.comparison {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid #3a3327;
+  border-radius: 7px;
+}
+
+.deltas {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: #e1ded8;
+}
+
+/* ---- 实验 -------------------------------------------------------------- */
+.experimentForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+
+  label {
+    display: block;
+  }
+
+  span {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 11px;
+    color: #a8a49b;
+  }
+
+  input {
+    width: 180px;
+    padding: 5px 9px;
+    border: 1px solid #3a3327;
+    border-radius: 6px;
+    background: #191713;
+    font: inherit;
+    font-size: 12px;
+    color: #e1ded8;
+  }
+
+  button {
+    padding: 6px 12px;
+    border: 1px solid #6b5a35;
+    border-radius: 7px;
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    color: #ffce7a;
+    cursor: pointer;
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+  }
+}
