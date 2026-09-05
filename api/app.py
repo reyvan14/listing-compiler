@@ -20,6 +20,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import agent_actions
 import agent_plan
 import evidence
 import factsregistry
@@ -78,6 +79,7 @@ async def scope_evidence_ledger(request: Request, call_next):
             "/api/passport",
             "/api/intake",
             "/api/policy/watch",
+            "/api/agent/actions",
         )
     ):
         return await call_next(request)
@@ -1016,6 +1018,75 @@ def localization_convert(body: ConvertBody):
     """Deterministic, traceable conversion. Display only; storage stays canonical."""
     conversion = localization.convert_for_market(body.key, body.value, body.unit, body.market)
     return {"code": 0, "data": {"conversion": conversion.as_dict()}}
+
+
+# --------------------------------------------------------------------------- #
+# Agent domain actions. A closed, typed allow-list: the model picks an action   #
+# and supplies parameters, never an endpoint, path or command. Consequential    #
+# actions need a second confirmation bound to their own payload.                #
+# --------------------------------------------------------------------------- #
+
+
+def _action_error(exc: agent_actions.ActionError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.http_status,
+        content={"code": 1, "error": exc.code, "message": exc.safe_message},
+    )
+
+
+@app.get("/api/agent/actions")
+def agent_action_catalog():
+    """Everything the Agent may ask for, and what each thing costs."""
+    return {
+        "code": 0,
+        "data": {
+            "actions": agent_actions.catalog(),
+            "forbidden": list(agent_actions.FORBIDDEN),
+            "max_per_plan": agent_actions.MAX_ACTIONS_PER_PLAN,
+            "publishes": False,
+        },
+    }
+
+
+class ActionPlanBody(BaseModel):
+    actions: list[dict[str, Any]] = Field(default_factory=list)
+
+
+@app.post("/api/agent/actions/preview")
+def agent_action_preview(body: ActionPlanBody):
+    """Validate a requested plan and describe it. Runs nothing."""
+    try:
+        validated = agent_actions.validate_plan(body.actions)
+    except agent_actions.ActionError as exc:
+        return _action_error(exc)
+    return {"code": 0, "data": agent_actions.preview(validated)}
+
+
+class RunActionBody(BaseModel):
+    action: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    #: Client-supplied so a retry of the same intent is recognisable as one.
+    idempotency_key: str
+    #: Present only on the second, explicit confirmation.
+    confirmation_token: str = ""
+
+
+@app.post("/api/agent/actions/run")
+def agent_action_run(body: RunActionBody):
+    try:
+        record = agent_actions.execute(
+            {"action": body.action, "params": body.params},
+            idempotency_key=body.idempotency_key,
+            confirmed_token=body.confirmation_token,
+        )
+    except agent_actions.ActionError as exc:
+        return _action_error(exc)
+    return {"code": 0, "data": {"run": record}}
+
+
+@app.get("/api/agent/actions/history")
+def agent_action_history(limit: int = Query(50, ge=1, le=200)):
+    return {"code": 0, "data": {"runs": agent_actions.history(limit)}}
 
 
 # --------------------------------------------------------------------------- #
