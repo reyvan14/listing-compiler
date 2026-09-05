@@ -46,6 +46,7 @@ import evidence
 import mediaassets
 import policy
 import review
+import storyboard as storyboard_module
 from evidence import store
 
 _LOCK = threading.RLock()
@@ -306,6 +307,35 @@ def _media_block(revision: dict[str, Any]) -> "tuple[list[dict[str, Any]], list[
     return rows, reasons
 
 
+def _content_packages(sku_id: str) -> list[dict[str, Any]]:
+    """Storyboard content packages for this SKU.
+
+    Included by reference and by state, never by optimism: ``composed`` is
+    whatever the storyboard actually recorded, so a passport cannot imply a
+    finished film that no composition step produced.
+    """
+    out: list[dict[str, Any]] = []
+    try:
+        boards = storyboard_module.list_storyboards(sku_id=sku_id)
+    except Exception:  # pragma: no cover - defensive
+        return out
+    for board in boards:
+        package = storyboard_module.content_package(board["storyboard_id"])
+        out.append(
+            {
+                "storyboard_id": package["storyboard_id"],
+                "platform": package["platform"],
+                "shot_count": package["manifest"]["shot_count"],
+                "generated_clips": package["manifest"]["generated_clips"],
+                "missing_clips": package["manifest"]["missing_clips"],
+                "composed": package["composed"],
+                "captions": list(package["captions"]),
+                "note": package["note"],
+            }
+        )
+    return out
+
+
 def _evidence_gate(revision: dict[str, Any]) -> dict[str, Any]:
     draft = {
         "id": revision["platform"],
@@ -441,6 +471,7 @@ def build(
             "evidence_documents": documents,
             "media": media,
             "policy_snapshots": _policy_block(platform),
+            "content_packages": _content_packages(sku_id),
             "approvals": approvals,
             "acknowledgements": acks,
             "audit": [
@@ -491,6 +522,7 @@ def _shell(sku_id: str, platform: str, project_id: str) -> dict[str, Any]:
         "evidence_documents": [],
         "media": [],
         "policy_snapshots": [],
+        "content_packages": [],
         "approvals": [],
         "acknowledgements": [],
         "audit": [],

@@ -121,8 +121,6 @@ export function defaultVideoNode(): VideoGenerationNode {
     aspectRatio: '9:16',
     duration: '5s',
     resolution: '720p',
-    audio: false,
-    cameraMode: '固定',
     count: 1,
     prompt: '',
     referenceImages: [],

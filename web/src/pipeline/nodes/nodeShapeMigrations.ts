@@ -79,6 +79,9 @@ export const nodeShapeVersions = createShapePropsMigrationIds('node', {
 	AddListingCompactCard: 24,
 	// 详情改为视口级检查器：listing_result 删除 expanded（结果卡恒为紧凑态）。
 	RemoveListingExpanded: 25,
+	// 分镜工作流：video_generation 删除 audio/cameraMode。两者从未被界面读取，
+	// 也从未随请求发出，留在契约里等于宣称一项并不存在的能力。
+	RemoveDeadVideoFields: 26,
 })
 
 // 图片/视频「类型」改为传英文码（显示中文、存英文）。旧的中文值/缺失统一回填为默认。
@@ -194,8 +197,10 @@ export function backfillNodeProps(node: Record<string, unknown>): Record<string,
 			node.firstFrameUrl ??= null
 			node.lastFrameUrl ??= null
 			node.referenceVideoUrl ??= null
-			node.audio ??= false
-			node.cameraMode ??= '固定'
+			// audio / cameraMode 曾在此回填，但从未被任何界面或请求使用。
+			// 留着等于在契约里宣称一项不存在的能力，所以现在删除（见迁移 26）。
+			if ('audio' in node) delete node.audio
+			if ('cameraMode' in node) delete node.cameraMode
 			// 基础节点标记（spawn 出的承载结果的节点）。旧画布的 video_generation 都是生成器。
 			node.isResultNode ??= false
 			// 自由裁剪框（纯前端显示裁剪）：旧记录无该字段 → null（未裁剪，全画幅）。
@@ -539,6 +544,15 @@ export const nodeShapeMigrations = createShapePropsMigrationSequence({
 		{
 			// listing_result：删 expanded（详情移到视口级检查器）。
 			id: nodeShapeVersions.RemoveListingExpanded,
+			up: (props) => ({
+				...props,
+				node: backfillNodeProps({ ...(props.node as Record<string, unknown>) }),
+			}),
+			down: 'retired',
+		},
+		{
+			// video_generation 删除 audio / cameraMode（backfillNodeProps 已改为删除它们）。
+			id: nodeShapeVersions.RemoveDeadVideoFields,
 			up: (props) => ({
 				...props,
 				node: backfillNodeProps({ ...(props.node as Record<string, unknown>) }),

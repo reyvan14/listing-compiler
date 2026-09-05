@@ -41,8 +41,6 @@ export const VideoGenerationNode = T.object({
   aspectRatio: T.string,
   duration: T.string,
   resolution: T.string,
-  audio: T.boolean,
-  cameraMode: T.string,
   count: T.number,
   prompt: T.string,
   referenceImages: T.arrayOf(T.string),

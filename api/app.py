@@ -33,6 +33,7 @@ import passport
 import migration
 import policy
 import policywatch
+import storyboard
 import portfolio
 import providers
 import review
@@ -82,6 +83,7 @@ async def scope_evidence_ledger(request: Request, call_next):
             "/api/policy/watch",
             "/api/agent/actions",
             "/api/feedback",
+            "/api/storyboard",
         )
     ):
         return await call_next(request)
@@ -1237,6 +1239,150 @@ def feedback_conclude(experiment_id: str, body: ConcludeBody):
     except feedback.FeedbackError as exc:
         return _feedback_error(exc)
     return {"code": 0, "data": {"experiment": experiment}}
+
+
+# --------------------------------------------------------------------------- #
+# Storyboard. Editable shots, real per-shot progress, and a content package     #
+# that never claims a final film it did not compose.                            #
+# --------------------------------------------------------------------------- #
+
+
+def _storyboard_error(exc: storyboard.StoryboardError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.http_status,
+        content={"code": 1, "error": exc.code, "message": exc.safe_message},
+    )
+
+
+class CreateStoryboardBody(BaseModel):
+    sku_id: str
+    platform: str = "tiktok"
+
+
+@app.post("/api/storyboard")
+def storyboard_create(body: CreateStoryboardBody):
+    """A new storyboard on the default hook / demo / benefit / close structure."""
+    return {"code": 0, "data": {"storyboard": storyboard.create(body.sku_id, platform=body.platform)}}
+
+
+@app.get("/api/storyboard")
+def storyboard_list(sku_id: str = Query("")):
+    return {"code": 0, "data": {"storyboards": storyboard.list_storyboards(sku_id=sku_id)}}
+
+
+@app.get("/api/storyboard/{storyboard_id}")
+def storyboard_get(storyboard_id: str):
+    try:
+        board = storyboard.get(storyboard_id)
+    except storyboard.StoryboardError as exc:
+        return _storyboard_error(exc)
+    return {
+        "code": 0,
+        "data": {
+            "storyboard": board,
+            "validation": storyboard.validate_shots(board["shots"]),
+            "progress": storyboard.progress(storyboard_id),
+        },
+    }
+
+
+class ShotsBody(BaseModel):
+    shots: list[dict[str, Any]] = Field(default_factory=list)
+
+
+@app.post("/api/storyboard/{storyboard_id}/shots")
+def storyboard_update_shots(storyboard_id: str, body: ShotsBody):
+    """Reorder, add, remove and edit. Already-generated clips are preserved."""
+    try:
+        board = storyboard.update_shots(storyboard_id, body.shots)
+    except storyboard.StoryboardError as exc:
+        return _storyboard_error(exc)
+    return {
+        "code": 0,
+        "data": {"storyboard": board, "validation": storyboard.validate_shots(board["shots"])},
+    }
+
+
+class GenerateBody(BaseModel):
+    #: Empty means "every shot that has not already succeeded".
+    shot_ids: list[str] = Field(default_factory=list)
+    confirmed: bool = False
+
+
+@app.post("/api/storyboard/{storyboard_id}/plan")
+def storyboard_plan(storyboard_id: str, body: GenerateBody):
+    """The exact number of paid calls, before anything is spent."""
+    try:
+        return {"code": 0, "data": storyboard.plan_generation(storyboard_id, only=body.shot_ids or None)}
+    except storyboard.StoryboardError as exc:
+        return _storyboard_error(exc)
+
+
+@app.post("/api/storyboard/{storyboard_id}/run")
+def storyboard_run(storyboard_id: str, body: GenerateBody):
+    try:
+        return {
+            "code": 0,
+            "data": storyboard.start_run(
+                storyboard_id, only=body.shot_ids or None, confirmed=body.confirmed
+            ),
+        }
+    except storyboard.StoryboardError as exc:
+        return _storyboard_error(exc)
+
+
+class ShotResultBody(BaseModel):
+    run_token: str
+    status: Literal["succeeded", "failed", "cancelled"]
+    result_url: str = ""
+    provider_task_id: str = ""
+    error: str = ""
+
+
+@app.post("/api/storyboard/{storyboard_id}/shots/{shot_id}/result")
+def storyboard_shot_result(storyboard_id: str, shot_id: str, body: ShotResultBody):
+    """Record one shot's outcome. A stale run's result is refused, not applied."""
+    try:
+        outcome = storyboard.record_shot_result(
+            storyboard_id,
+            shot_id,
+            run_token=body.run_token,
+            status=body.status,
+            result_url=body.result_url,
+            provider_task_id=body.provider_task_id,
+            error=body.error,
+        )
+    except storyboard.StoryboardError as exc:
+        return _storyboard_error(exc)
+    return {
+        "code": 0,
+        "data": {**outcome, "progress": storyboard.progress(storyboard_id)},
+    }
+
+
+@app.post("/api/storyboard/{storyboard_id}/cancel")
+def storyboard_cancel(storyboard_id: str):
+    try:
+        board = storyboard.cancel_run(storyboard_id)
+    except storyboard.StoryboardError as exc:
+        return _storyboard_error(exc)
+    return {"code": 0, "data": {"storyboard": board, "progress": storyboard.progress(storyboard_id)}}
+
+
+@app.get("/api/storyboard/{storyboard_id}/progress")
+def storyboard_progress(storyboard_id: str):
+    try:
+        return {"code": 0, "data": storyboard.progress(storyboard_id)}
+    except storyboard.StoryboardError as exc:
+        return _storyboard_error(exc)
+
+
+@app.get("/api/storyboard/{storyboard_id}/package")
+def storyboard_package(storyboard_id: str):
+    try:
+        return {"code": 0, "data": storyboard.content_package(storyboard_id)}
+    except storyboard.StoryboardError as exc:
+        return _storyboard_error(exc)
 
 
 # --------------------------------------------------------------------------- #
