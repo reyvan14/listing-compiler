@@ -32,6 +32,7 @@ import {
 } from './migration/reducer';
 import { downloadReport, serializeReport } from './migration/report';
 import { diffFacts } from './migration/skuFacts';
+import { PolicyWatchSection } from './policywatch/PolicyWatchSection';
 import { patchKey, type CandidatePatch, type ImpactRow } from './migration/types';
 import styles from './nodes.module.scss';
 
@@ -557,6 +558,11 @@ export function MigrationPanel({ editor, onClose }: { editor: Editor; onClose: (
             <p className={styles.rulesNote}>已回滚：产物值、状态、政策版本已还原到迁移前。</p>
           </section>
         )}
+
+        {/* Source watching sits below the migration workflow: it is upstream in
+            time but secondary in this panel, and putting it first would push the
+            primary task off the first screen. */}
+        <PolicyWatchSection />
       </aside>
     </div>
   );

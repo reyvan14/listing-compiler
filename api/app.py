@@ -25,10 +25,12 @@ import evidence
 import factsregistry
 import imagecheck
 import intake
+import localization
 import mediaassets
 import passport
 import migration
 import policy
+import policywatch
 import portfolio
 import providers
 import review
@@ -75,6 +77,7 @@ async def scope_evidence_ledger(request: Request, call_next):
             "/api/media/assets",
             "/api/passport",
             "/api/intake",
+            "/api/policy/watch",
         )
     ):
         return await call_next(request)
@@ -910,6 +913,109 @@ def intake_appearance(body: AppearanceBody):
 def intake_prompt_facts():
     """Exactly what generation is allowed to see: approved, typed facts only."""
     return {"code": 0, "data": {"facts": intake.prompt_facts()}}
+
+
+# --------------------------------------------------------------------------- #
+# Policy Watch. Notices that a source page changed and records a candidate.     #
+# Nothing here activates a policy: only a human writes a snapshot.              #
+# --------------------------------------------------------------------------- #
+
+
+def _watch_error(exc: policywatch.PolicyWatchError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.http_status,
+        content={"code": 1, "error": exc.code, "message": exc.safe_message},
+    )
+
+
+@app.get("/api/policy/watch")
+def policy_watch_list():
+    return {
+        "code": 0,
+        "data": {
+            "watches": policywatch.list_watches(),
+            "candidates": policywatch.list_candidates(),
+            "allowlist": list(policywatch.allowlist()),
+            "events": policywatch.events()[-50:],
+        },
+    }
+
+
+@app.post("/api/policy/watch/{watch_id}/check")
+def policy_watch_check(watch_id: str):
+    """Manual 检查更新 for one source. Records a candidate at most."""
+    try:
+        return {"code": 0, "data": policywatch.check_watch(watch_id)}
+    except policywatch.PolicyWatchError as exc:
+        return _watch_error(exc)
+
+
+@app.post("/api/policy/watch/check-all")
+def policy_watch_check_all():
+    return {"code": 0, "data": {"results": policywatch.check_all()}}
+
+
+class PolicyCandidateBody(BaseModel):
+    operator: str = ""
+    reason: str = ""
+
+
+@app.post("/api/policy/watch/candidates/{candidate_id}/approve")
+def policy_candidate_approve(candidate_id: str, body: PolicyCandidateBody):
+    """Confirm the source really changed. Still writes no rule."""
+    try:
+        candidate = policywatch.approve_candidate(
+            candidate_id, operator=body.operator, reason=body.reason
+        )
+    except policywatch.PolicyWatchError as exc:
+        return _watch_error(exc)
+    return {"code": 0, "data": {"candidate": candidate}}
+
+
+@app.post("/api/policy/watch/candidates/{candidate_id}/reject")
+def policy_candidate_reject(candidate_id: str, body: PolicyCandidateBody):
+    try:
+        candidate = policywatch.reject_candidate(
+            candidate_id, operator=body.operator, reason=body.reason
+        )
+    except policywatch.PolicyWatchError as exc:
+        return _watch_error(exc)
+    return {"code": 0, "data": {"candidate": candidate}}
+
+
+# --------------------------------------------------------------------------- #
+# Localization boundaries. A market without its own snapshot is reported as     #
+# uncovered rather than graded with another market's rules.                     #
+# --------------------------------------------------------------------------- #
+
+
+@app.get("/api/localization/markets")
+def localization_markets():
+    return {"code": 0, "data": {"markets": localization.markets()}}
+
+
+@app.get("/api/localization/settings")
+def localization_settings(
+    market: str = Query("US"), source_language: str = Query("zh-CN")
+):
+    return {
+        "code": 0,
+        "data": localization.settings(market, source_language=source_language),
+    }
+
+
+class ConvertBody(BaseModel):
+    key: str
+    value: str
+    unit: str = ""
+    market: str = "US"
+
+
+@app.post("/api/localization/convert")
+def localization_convert(body: ConvertBody):
+    """Deterministic, traceable conversion. Display only; storage stays canonical."""
+    conversion = localization.convert_for_market(body.key, body.value, body.unit, body.market)
+    return {"code": 0, "data": {"conversion": conversion.as_dict()}}
 
 
 # --------------------------------------------------------------------------- #
